@@ -60,10 +60,11 @@ export type CallUsage = { input_tokens: number; output_tokens: number; cache_rea
 // The result of the call when it gave no reply: the reason, and for an API error its kind and HTTP status
 export type CallFailure = { reason?: string; status?: number | null; error?: string }
 
-// The model of the call: the userConfig option `recommendModel`, or the default when it is empty
+// The model of the call: the userConfig option `recommendModel`, or the default when it is empty.
+// The option is free text, and model ids are lower case, so `Sonnet` counts as `sonnet`
 export function modelOption(options: unknown): string {
   const value = typeof options === 'object' && options !== null ? (options as Record<string, unknown>).recommendModel : undefined
-  return typeof value === 'string' && value.trim() !== '' ? value.trim() : DEFAULT_MODEL
+  return typeof value === 'string' && value.trim() !== '' ? value.trim().toLowerCase() : DEFAULT_MODEL
 }
 
 // Why the call gave no reply, as one sentence for the dialog

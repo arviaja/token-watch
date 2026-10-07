@@ -75,6 +75,8 @@ test('the model comes from the option recommendModel, and sonnet when the option
   expect(modelOption({ recommendModel: '  ' })).toBe('sonnet')
   expect(modelOption({ recommendModel: 3 })).toBe('sonnet')
   expect(modelOption({ recommendModel: ' opus ' })).toBe('opus')
+  expect(modelOption({ recommendModel: 'Sonnet' })).toBe('sonnet')
+  expect(modelOption({ recommendModel: 'Claude-Opus-5-5' })).toBe('claude-opus-5-5')
 })
 
 test('the input estimate is 1 token for every 3 characters, rounded up', async () => {
