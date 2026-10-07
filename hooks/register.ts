@@ -224,7 +224,7 @@ export const register: Register = (on) => {
     isDirty = true
     await loadLimits($)
     return next(e)
-  })
+  }).catch(($, e, next) => next(e)) // Observation only; the session start goes on
 
   on('session.end', async ($, e, next) => {
     await flush($)
@@ -239,7 +239,7 @@ export const register: Register = (on) => {
       await update($, agents, (a) => ({ ...a, [id]: type }))
     }
     return result
-  })
+  }).catch(($, e, next) => next(e)) // Observation only; the spawn goes on
 
   // Observes each model request; the result goes back unchanged
   on('turn.step', async function* ($, e, next) {

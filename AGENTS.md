@@ -51,7 +51,8 @@ Tests are in `tests/` and run with `claude plugin test`:
 
 - Use the ASCII hyphen-minus (`-`) for every dash. Never use an em dash (U+2014) or an en dash (U+2013). `make verify` checks this.
 - Write docs and commit messages in Simplified Technical English: short sentences, active voice, one word for one meaning.
-- Make one branch for each change. Stage files by path.
+- Make one branch for each change. Name it `type/topic`, for example `fix/band-width`. Stage files by path.
+- This repo is public. Files, commit messages and branch names contain no client name, no name of a private repo, no issue tracker code, no home path and no real spend figure. Examples use neutral repo names such as `webshop`.
 - Add or change tests with every change of behaviour. `make verify` must pass.
 - Update the design doc when behaviour changes.
 

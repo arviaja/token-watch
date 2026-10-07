@@ -1,0 +1,17 @@
+{
+  "name": "token-watch",
+  "owner": {
+    "name": "Sebastian Varga",
+    "url": "https://github.com/arviaja"
+  },
+  "metadata": {
+    "description": "The marketplace of token-watch, a Claude Code mod"
+  },
+  "plugins": [
+    {
+      "name": "token-watch",
+      "source": "./",
+      "description": "Shows token use, plan limits and cache temperature of the sessions on this Mac"
+    }
+  ]
+}
