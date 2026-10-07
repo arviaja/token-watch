@@ -16,5 +16,8 @@
   ],
   "repository": "https://github.com/arviaja/token-watch",
   "homepage": "https://github.com/arviaja/token-watch",
+  "documentationUrl": "https://github.com/arviaja/token-watch#readme",
+  "supportUrl": "https://github.com/arviaja/token-watch/issues",
+  "privacyPolicyUrl": "https://github.com/arviaja/token-watch/blob/main/PRIVACY.md",
   "types": "./types/index.d.ts"
 }

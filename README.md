@@ -119,7 +119,7 @@ Claude Code writes the type declarations of the installed version into `.claude-
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Report a security problem privately, as [SECURITY.md](SECURITY.md) describes.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report a security problem privately, as [SECURITY.md](SECURITY.md) describes. [PRIVACY.md](PRIVACY.md) describes the data that the mod reads, stores and sends.
 
 ## License
 
