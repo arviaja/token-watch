@@ -1,5 +1,5 @@
 import type { Breakdown, Cause, Causes, Counts, Limit, Main, Resume, Snapshot, Totals } from '../types'
-import { cell, dayTime, fitColumns, formatMoney, formatPercent, formatTokens, historyCells, limitItems, limitsAgeText, markedCell, modelsText, placeMarks, projectionText, shortModel, tubeLabel, weekDayNames, type Column, type HistoryCell, type LimitItem, type PlacedMarks, type ResumeMark } from './format'
+import { cell, dayTime, desktopCells, fitColumns, formatMoney, formatPercent, formatTokens, historyCells, limitItems, limitsAgeText, markedCell, modelsText, placeMarks, projectionText, shortModel, tubeLabel, weekDayNames, type Column, type HistoryCell, type LimitItem, type PlacedMarks, type ResumeMark } from './format'
 import { priceInfo, rewarmCost } from './prices'
 import { barSvg, fraction, heat, heatText, minutesLeft, sparkSvg, stageOf, stripCellAt, stripCells, stripSvg, tubeAlt, tubeCells, type Cell, type Stage, type StripCell } from './temperature'
 import { STRIP_MS, groupWeek, mergeReadings, modelSums, weekOf, type NowRow, type Row, type Share } from './tally'
@@ -27,7 +27,9 @@ const UNPRICED = 'unpriced'
 const COST_NOTE = 'estimate: the requests this mod saw, at API prices. /cost: the figure of Claude Code. It also counts requests that the mod does not see, for example compaction.'
 const MAX_BAND_MODELS = 1
 const BAND_TUBE_CELLS = 10
-// The band keeps these free cells, because the proportional font of the desktop app does not match the cell count
+// The desktop tube is an Svg of 90 by 14 CSS pixels: 11.6 cells of the code font of the desktop app
+const BAND_DESKTOP_TUBE_CELLS = 12
+// The band keeps these free cells, a margin for the width estimate of the proportional font on the desktop
 const BAND_MARGIN = 4
 const NOW_TUBE_CELLS = 8
 const BAR_CELLS = 20
@@ -245,13 +247,20 @@ function cellCount(value: string): number {
   return Array.from(value).length
 }
 
-// The band is one line of cells: the tube (with the two frame cells on the terminal) and the characters of the text
+// The width of the band in cells: the tube and the text.
+// On the terminal the tube is 12 cells (10 and the two frame cells) and each character of the text is one cell.
+// On the desktop the tube is the Svg, and the text is proportional, so each character has its own width (desktopCells)
+export function bandCells(text: string, isTubeShown: boolean, isOnDesktop: boolean): number {
+  const tube = !isTubeShown ? 0 : isOnDesktop ? BAND_DESKTOP_TUBE_CELLS : BAND_TUBE_CELLS + 2
+  return tube + (isOnDesktop ? desktopCells(text) : cellCount(text))
+}
+
 export function bandEls(E: Els, d: BandData, surface: string = 'terminal', available?: number): unknown {
   const isTubeShown = d.fraction !== null && d.stage !== null
-  const onDesktop = isTubeShown && isDesktop(E, surface)
-  const tubeCellCount = !isTubeShown ? 0 : onDesktop ? BAND_TUBE_CELLS : BAND_TUBE_CELLS + 2
+  const isOnDesktop = isDesktop(E, surface)
+  const onDesktop = isTubeShown && isOnDesktop
   const budget = typeof available === 'number' && Number.isFinite(available) ? available - BAND_MARGIN : Infinity
-  const widthOf = (segments: Segment[]) => tubeCellCount + segments.reduce((sum, s) => sum + cellCount(s.value), 0)
+  const widthOf = (segments: Segment[]) => bandCells(segments.map((s) => s.value).join(''), isTubeShown, isOnDesktop)
   const hasLimits = d.limits.length > 0
   const hasProjection = (part: BandPart) => d.limits.some((l) => PROJECTION_PARTS[l.kind] === part && l.projection !== '')
   const present: Record<BandPart, boolean> = {

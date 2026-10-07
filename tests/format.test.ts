@@ -3,6 +3,7 @@ import {
   ageText,
   cell,
   dayTime,
+  desktopCells,
   fitColumns,
   fitList,
   formatMoney,
@@ -26,6 +27,25 @@ import {
 
 const MIN = 60_000
 const HOUR = 60 * MIN
+
+test('desktopCells gives the width of a text in the proportional font of the desktop, in cells of its code font', async () => {
+  expect(desktopCells('')).toBe(0)
+  expect(desktopCells('W')).toBe(1.72)
+  expect(desktopCells('l')).toBe(0.41)
+  expect(desktopCells(' → ')).toBe(2.03)
+  // Every printable ASCII character has a width between a fifth of a cell and two cells
+  for (let code = 32; code <= 126; code++) {
+    const width = desktopCells(String.fromCharCode(code))
+    expect(width, String.fromCharCode(code)).toBeGreaterThan(0.2)
+    expect(width, String.fromCharCode(code)).toBeLessThan(2)
+  }
+  // A character outside the tables counts as the widest one
+  expect(desktopCells('\u4e00')).toBe(desktopCells('W'))
+  // The band text of the screenshot that set the table: drawn 49.90 cells wide, estimated a little wider
+  const width = desktopCells(' HOT 60m left · 488k cached · $3.91 to re-warm | week 57% · 5h 3%')
+  expect(width).toBeGreaterThanOrEqual(49.9)
+  expect(width).toBeLessThan(50.5)
+})
 
 test('formatTokens uses k, M and B with the decimal rule', async () => {
   expect(formatTokens(0)).toBe('0')
