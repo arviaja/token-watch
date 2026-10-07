@@ -25,7 +25,7 @@ Prerequisites: the `claude` CLI (Claude Code 2.1.287 or later), `gitleaks`, `per
 - Update the design doc in `docs/design/` when behaviour changes, and the README when users see the change.
 - Write docs and commit messages in Simplified Technical English: short sentences, active voice, one word for one meaning.
 - Use the ASCII hyphen-minus (`-`) for every dash. `make verify` checks this.
-- Put no secret, personal data, name of a private repo, home path or real spend figure in a file, a commit message or a screenshot. Use neutral examples such as `webshop`.
+- This repo is public, and so is everything that you push: files, commit messages and branch names. Put no secret, personal data, name of a private repo, issue tracker code, home path or real spend figure in them, or in a screenshot. Use neutral examples: the repo `webshop`, the user `me` (`/Users/me/...`). `make verify` checks for home paths (`scripts/check-private.sh`).
 - A price change in `hooks/prices.ts` names its source and the date that you read it.
 
 ## Pull requests

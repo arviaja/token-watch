@@ -101,6 +101,7 @@ Use one of these ways, not two. Two ways load the mod twice.
 
 - a check for em dashes and en dashes in text files
 - a secret scan (gitleaks)
+- a check for private data (`scripts/check-private.sh`): home paths, and the terms of a local list that is never committed
 - `claude plugin validate --strict .`
 - `claude plugin test .`
 

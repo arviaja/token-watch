@@ -4,6 +4,17 @@ Instructions for people and coding agents that work on this repo.
 
 `token-watch` is a Claude Code mod: a plugin with one hooks module of TypeScript function hooks, which Claude Code loads in its own process. It installs no hooks in `settings.json`. It shows the token use, the plan limits and the cache temperature of the sessions on this Mac. The mod only observes. No hook blocks, changes or delays a request, a tool call or a prompt, and no hook calls a model. It draws a band above the prompt and a pane with five tabs (Now, Session, Week, Why, Help) that the command `/token-watch` opens. It runs in the Claude Code CLI and in the Code tab of the desktop app.
 
+## This repo is public
+
+Everything in this repo is public: files, commit messages, branch names, tags, issues and pull requests. GitHub keeps each commit that reaches it, and `main` refuses a force-push. A mistake on GitHub cannot be undone with a history rewrite.
+
+- Put no secret, personal data, client name, name of a private repo, issue tracker code, home path or real spend figure in a file, a commit message, a branch name or a screenshot.
+- Examples use neutral names: the repo `webshop`, the user `me` (`/Users/me/...`).
+- Name a branch `type/topic`, for example `fix/band-width`. Write the issue tracker link in the tracker, not in git.
+- `make verify` runs `scripts/check-private.sh`. It fails on a home path of a real user. When the clone has a local list of private terms (`.git/info/private-terms`, never committed), it also fails on each of those terms in a file, in a commit message that is not on `origin/main` yet, or in the branch name.
+- Run `make verify` on the branch before the merge, and again on `main` after the merge and before the push. The second run checks the merge commit message.
+- When private data reaches GitHub, stop and tell the maintainer at once. Do not try to rewrite the history.
+
 ## Architecture
 
 - `.claude-plugin/plugin.json`: the manifest. Its `types` field names the type contract.
@@ -25,7 +36,7 @@ Tests are in `tests/` and run with `claude plugin test`:
 
 ## Commands
 
-- `make verify`: runs `text` (no em or en dash in any text file that git tracks or does not ignore), `secrets` (gitleaks over the history, the staged and unstaged changes and the untracked files), `validate` (`claude plugin validate --strict .`) and `test` (`claude plugin test .`). It fails when one of them fails. Run it before each commit.
+- `make verify`: runs `text` (no em or en dash in any text file that git tracks or does not ignore), `secrets` (gitleaks over the history, the staged and unstaged changes and the untracked files), `private` (`scripts/check-private.sh`, see "This repo is public"), `validate` (`claude plugin validate --strict .`) and `test` (`claude plugin test .`). It fails when one of them fails. Run it before each commit.
 - `make typecheck`: the TypeScript check. It has known errors and is not in `verify` yet. It needs `tsconfig.json` and `.claude-plugin/types/`. Claude Code generates both when the mod loads, and git ignores both, so a fresh checkout or worktree can fail for that reason.
 - `make prices`: runs `node scripts/prices.mjs`. It reads the models in the store of the mod (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/store/token-watch_*.json`) and prints each one as `exact`, `fallback from <key>` or `unpriced`, then a summary. It informs, always exits 0 and is not in `verify`. Run it when a pane shows `unpriced` or `≈`, then add the new keys to `PRICES` in `hooks/prices.ts`.
 - `claude --plugin-dir .`: runs the mod in one session.
@@ -52,7 +63,7 @@ Tests are in `tests/` and run with `claude plugin test`:
 - Use the ASCII hyphen-minus (`-`) for every dash. Never use an em dash (U+2014) or an en dash (U+2013). `make verify` checks this.
 - Write docs and commit messages in Simplified Technical English: short sentences, active voice, one word for one meaning.
 - Make one branch for each change. Name it `type/topic`, for example `fix/band-width`. Stage files by path.
-- This repo is public. Files, commit messages and branch names contain no client name, no name of a private repo, no issue tracker code, no home path and no real spend figure. Examples use neutral repo names such as `webshop`.
+- Follow the rules in "This repo is public" above.
 - Add or change tests with every change of behaviour. `make verify` must pass.
 - Update the design doc when behaviour changes.
 
