@@ -1,6 +1,6 @@
 # Makefile of token-watch, a Claude Code mod.
 # `make verify` is the one entrypoint for the checks. Run it before each commit.
-# It runs the targets text, secrets, validate and test in this order and fails when one fails.
+# It runs the targets text, secrets, private, validate and test in this order and fails when one fails.
 # `make prices` lists the models in the store of the mod and shows how each one is priced. It informs, is not part of `verify` and always exits 0.
 #
 # Prerequisites:
@@ -8,10 +8,11 @@
 #   - gitleaks: the secret scan
 #   - perl: the dash check in scripts/check-dashes.sh (the version that ships with macOS and Linux)
 #   - git and node (node runs scripts/prices.mjs; the typecheck target also needs npx)
+#   - bash: scripts/check-private.sh
 
-.PHONY: verify text secrets validate test typecheck prices
+.PHONY: verify text secrets private validate test typecheck prices
 
-verify: text secrets validate test
+verify: text secrets private validate test
 
 # No em dash (U+2014) and no en dash (U+2013) in any text file that git tracks or does not ignore.
 text:
@@ -23,6 +24,11 @@ secrets:
 	gitleaks git . --staged --no-banner --redact --log-level warn
 	gitleaks git . --pre-commit --no-banner --redact --log-level warn
 	@git ls-files -z --others --exclude-standard | xargs -0 -I{} gitleaks dir "{}" --no-banner --redact --log-level warn
+
+# This repo is public. No home path of a real user, and with the local list .git/info/private-terms no private term,
+# in a file, a new commit message or the branch name. See "This repo is public" in AGENTS.md.
+private:
+	bash scripts/check-private.sh
 
 # The manifest and the hooks module follow the rules of Claude Code.
 validate:
