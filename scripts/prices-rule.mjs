@@ -79,7 +79,13 @@ export function collectModels(value, found = new Set()) {
   return found
 }
 
-function describe(status) {
+// An id without a version is an alias of /token-watch recommend (`claude-sonnet`): it always takes the price of the newest model of its family, so it needs no key
+function isAlias(model, status) {
+  return status.source === 'fallback' && versionOf(baseModel(model)).length === 0
+}
+
+function describe(model, status) {
+  if (isAlias(model, status)) return 'alias, priced as ' + status.from
   return status.source === 'fallback' ? 'fallback from ' + status.from : status.source
 }
 
@@ -87,13 +93,13 @@ function describe(status) {
 export function reportLines(models, keys, fileCount) {
   const sorted = [...models].sort()
   const width = Math.max(0, ...sorted.map((model) => model.length))
-  const counts = { exact: 0, fallback: 0, unpriced: 0 }
+  const counts = { exact: 0, fallback: 0, unpriced: 0, alias: 0 }
   const lines = sorted.map((model) => {
     const status = statusOf(model, keys)
-    counts[status.source]++
-    return model.padEnd(width) + '  ' + describe(status)
+    counts[isAlias(model, status) ? 'alias' : status.source]++
+    return model.padEnd(width) + '  ' + describe(model, status)
   })
   const noun = (n, word) => n + ' ' + word + (n === 1 ? '' : 's')
-  lines.push(noun(sorted.length, 'model') + ' in ' + noun(fileCount, 'store file') + ': ' + counts.exact + ' exact, ' + counts.fallback + ' fallback, ' + counts.unpriced + ' unpriced')
+  lines.push(noun(sorted.length, 'model') + ' in ' + noun(fileCount, 'store file') + ': ' + counts.exact + ' exact, ' + counts.fallback + ' fallback, ' + counts.unpriced + ' unpriced' + (counts.alias > 0 ? ', ' + counts.alias + (counts.alias === 1 ? ' alias' : ' aliases') : ''))
   return lines
 }

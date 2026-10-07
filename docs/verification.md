@@ -13,7 +13,8 @@ Checks in real sessions on 2026-10-06:
 | Session, Week and Why tabs | Changed on 2026-10-06 to the table layout and the tube bars of the Now tab, on both surfaces. Desktop app and CLI: passed, including the week history of 14 periods. Later the same day: the `estimate` and `reported` rows, the cache history with the resume costs and the time axis, the week history with the day axis, and money with two decimals. Desktop app and CLI: passed. |
 | Light theme | Text in heat colours has a contrast of at least 3:1 on white and on a dark background. The selection colour of the current row is a theme key. Desktop app in the light theme: passed on 2026-10-06. |
 | Help tab | Added on 2026-10-06 with the approved text. Passed on 2026-10-06: key 5 opens it. |
-| Context cost of the mod | Passed. The mod sends nothing to the model. In the 24 sessions that ran the mod up to 2026-10-06, the skill list that the model receives does not contain `token-watch` (checked in the session transcripts). Each `/token-watch` adds the command to the conversation, as every slash command does. |
+| Context cost of the mod | Passed. Outside `/token-watch recommend`, the mod sends nothing to the model. In the 24 sessions that ran the mod up to 2026-10-06, the skill list that the model receives does not contain `token-watch` (checked in the session transcripts). Each `/token-watch` adds the command to the conversation, as every slash command does. |
+| `/token-watch recommend` | Passed on 2026-10-07 in the CLI and in the desktop app: the dialog shows the cost, Cancel and Esc close it without a call, Ask shows the reply as Markdown with the usage line, and the store counts each call under the scope `recommend`. The comparison of Sonnet 5.5 and Opus 5.5 is in the design doc. |
 | Totals against the session transcript | Not done. |
 
 Automated: `make verify` passes: the dash check, the secret scan, `claude plugin validate --strict .` and `claude plugin test .`.

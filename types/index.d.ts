@@ -58,6 +58,26 @@ export type Breakdown = {
   agents: BreakdownRow[]
 }
 
+// The dialog of /token-watch recommend. confirm: the cost shows and no call ran. asking: the call runs. answered: the reply shows. failed: the call gave no reply.
+// model is the model as configured, an alias or an id. priceModel is the id that prices the call and that the totals use: `claude-sonnet` for the alias `sonnet`
+export type RecommendPhase = 'confirm' | 'asking' | 'answered' | 'failed'
+
+export type Recommend = {
+  id: number
+  phase: RecommendPhase
+  model: string
+  priceModel: string
+  prompt: string
+  inputTokens: number
+  outputCap: number
+  // The highest cost at API prices, or null for a model without a price
+  maxCost: number | null
+  // The reply as Markdown, or the reason of a failure
+  text: string
+  // The counted usage of the call, after it ran
+  counts: Counts | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'token-watch': {
@@ -74,6 +94,7 @@ declare module 'claude-code' {
       tab: number
       breakdown: Breakdown | null
       others: Snapshot[]
+      recommend: Recommend | null
     }
   }
 }

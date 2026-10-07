@@ -1,6 +1,6 @@
 # Security policy
 
-token-watch is a Claude Code mod. It is not sandboxed: it runs in the Claude Code process with your permissions. It reads token counts and plan limits from Claude Code and writes snapshots to the mod store (`~/.claude/plugins/store/`). It sends no network request and calls no model.
+token-watch is a Claude Code mod. It is not sandboxed: it runs in the Claude Code process with your permissions. It reads token counts and plan limits from Claude Code and writes snapshots to the mod store (`~/.claude/plugins/store/`). It calls a model only for `/token-watch recommend`, after you confirm the cost in a dialog. That call goes through the API client of the Claude Code session (`$.model.complete`) and sends only the usage data that the tabs show. The mod sends no other network request.
 
 ## Supported versions
 

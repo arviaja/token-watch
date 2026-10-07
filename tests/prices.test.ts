@@ -167,6 +167,8 @@ test('reportLines gives one sorted line for each model and a summary', async () 
     'claude-sonnet-6  fallback from claude-sonnet-5-5',
     '3 models in 2 store files: 1 exact, 1 fallback, 1 unpriced',
   ])
+  // The price model of /token-watch recommend has no version: it is an alias, not a missing key
+  expect(reportLines(new Set(['claude-opus-5-5', 'claude-sonnet']), keys, 1)).toEqual(['claude-opus-5-5  exact', 'claude-sonnet    alias, priced as claude-sonnet-5-5', '2 models in 1 store file: 1 exact, 0 fallback, 0 unpriced, 1 alias'])
   expect(reportLines(new Set(['claude-opus-5-5']), keys, 1)).toEqual(['claude-opus-5-5  exact', '1 model in 1 store file: 1 exact, 0 fallback, 0 unpriced'])
   expect(reportLines(new Set(), keys, 1)).toEqual(['0 models in 1 store file: 0 exact, 0 fallback, 0 unpriced'])
 })

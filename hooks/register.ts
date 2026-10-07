@@ -1,12 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { Run, Snapshot } from '../types'
+import type { Counts, Run, Snapshot } from '../types'
 import { repoName } from './format'
-import { costOf, tokens, writeCostOf } from './prices'
+import { costOf, priceInfo, tokens, writeCostOf } from './prices'
+import { OUTPUT_CAP, RECOMMEND_EFFORT, RECOMMEND_SCOPE, RECOMMEND_SYSTEM, RECOMMEND_TIMEOUT_MS, drawableText, estimateTokens, failureText, maxCostOf, modelOption, priceModelOf, recommendPrompt, type CallUsage } from './recommend'
 import { MAIN_TTL_MS, SUB_TTL_MS } from './temperature'
 import { KEEP_MS, NO_CAUSES, NO_MAIN, addCause, addReadings, addTo, breakdownOf, causeOf, contextOf, countsOf, hourKey, mainAfter, nowRows, parseSnapshot, rowsOf, runKey, snapshotOf, sumAll } from './tally'
-import { bandData, bandEls, helpEls, nowEls, paneEls, sessionEls, tabsEls, weekData, weekEls, whyEls, type Els } from './view'
+import { bandData, bandEls, helpEls, nowEls, paneEls, recommendEls, sessionEls, tabsEls, weekData, weekEls, whyEls, type Els } from './view'
 
 const run = atom({ plugin: 'token-watch', key: 'run' } as const, null)
 const totals = atom({ plugin: 'token-watch', key: 'totals' } as const, {})
@@ -21,12 +22,19 @@ const hours = atom({ plugin: 'token-watch', key: 'hours' } as const, {})
 const breakdown = atom({ plugin: 'token-watch', key: 'breakdown' } as const, null)
 const others = atom({ plugin: 'token-watch', key: 'others' } as const, [])
 const tab = atom({ plugin: 'token-watch', key: 'tab' } as const, 1)
+const recommend = atom({ plugin: 'token-watch', key: 'recommend' } as const, null)
 
 // The pane's id, used to open the pane and to recognize it when drawing
 const PANE = 'token-watch'
+// The dialog of /token-watch recommend is a pane of its own, so the tabs keep their state
+const RECOMMEND_PANE = 'token-watch-recommend'
+const RECOMMEND_TITLE = 'token-watch recommend'
+const STALE_ASK = 'The call stopped: the mod loaded again while the call ran. Run /token-watch recommend again.'
 
 // The module's own flags start over on a reload; the data lives in $.state and $.store
 let isDirty = false
+// Stops the running call of /token-watch recommend when the dialog closes
+let stopRecommend: AbortController | null = null
 
 async function newRun($: any): Promise<Run> {
   const next: Run = { sessionId: await $.session.id(), startedAt: await $.clock.now(), repo: repoName(await $.session.root()) }
@@ -173,6 +181,104 @@ async function agentTypeOf($: any, agentId: string): Promise<string> {
   return type
 }
 
+// The dialog of /token-watch recommend: it reads the data of the tabs, builds the prompt and shows the cost. No call runs here
+async function openRecommend($: any, model: string): Promise<{ text?: string }> {
+  // A new dialog takes the place of the old one, so the reply of a call that runs has no place to show
+  stopRecommend?.abort()
+  const now = await $.clock.now()
+  await loadOthers($)
+  await loadBreakdown($)
+  const m = await read($, main)
+  const prompt = recommendPrompt({
+    now,
+    totals: await read($, totals),
+    causes: await read($, causes),
+    usd: await sessionCost($),
+    requestTimes: m.requestTimes,
+    resumes: m.resumes,
+    limits: await read($, limits),
+    limitsAt: await read($, limitsAt),
+    week: weekData(await allSnapshots($, now), now),
+    breakdown: await read($, breakdown),
+  })
+  const priceModel = priceModelOf(model)
+  const inputTokens = estimateTokens(RECOMMEND_SYSTEM + prompt)
+  await update($, recommend, () => ({ id: now, phase: 'confirm' as const, model, priceModel, prompt, inputTokens, outputCap: OUTPUT_CAP, maxCost: maxCostOf(priceInfo(priceModel), inputTokens, OUTPUT_CAP), text: '', counts: null }))
+  try {
+    // A dialog: it takes the keys, Esc closes it, and the toasts wait until it closes
+    const opened = await $.ui.open({ id: RECOMMEND_PANE, title: RECOMMEND_TITLE, focus: true, closeOnEscape: true, holdToasts: true, columns: 80, rows: 18 })
+    if (opened.isPlaced === false) return { text: 'The token-watch recommend dialog is waiting: ' + (opened.reason ?? 'no reason given') }
+  } catch (error) {
+    return { text: 'The token-watch recommend dialog did not open: ' + (error instanceof Error ? error.message : String(error)) }
+  }
+  return {}
+}
+
+// The call runs only from the Ask button of the dialog
+async function askRecommend($: any): Promise<void> {
+  const r = await read($, recommend)
+  if (r === null || r.phase !== 'confirm') return
+  // Only one press moves the dialog from confirm to asking, so two quick presses run one call
+  let isStarted = false
+  await update($, recommend, (v) => {
+    isStarted = v !== null && v.id === r.id && v.phase === 'confirm'
+    return isStarted ? { ...v!, phase: 'asking' as const } : v
+  })
+  if (!isStarted) return
+  try {
+    // The pane stays open for the reply: it no longer holds the toasts, and it asks for more rows
+    await $.ui.open({ id: RECOMMEND_PANE, title: RECOMMEND_TITLE, closeOnEscape: true, columns: 80, rows: 24 })
+  } catch {
+    // The pane keeps its size
+  }
+  const stop = new AbortController()
+  stopRecommend = stop
+  let result: { isAnswered: boolean; text?: string; reason?: string; status?: number | null; error?: string; usage?: CallUsage }
+  try {
+    result = await $.model.complete({ model: r.model, system: RECOMMEND_SYSTEM, prompt: r.prompt, maxTokens: r.outputCap, effort: RECOMMEND_EFFORT, timeoutMs: RECOMMEND_TIMEOUT_MS }, { signal: stop.signal })
+  } catch (error) {
+    // The engine refused to send the request, for example for a model that is not allowed. No call ran
+    await update($, recommend, (v) => (v?.id === r.id ? { ...v, phase: 'failed' as const, text: drawableText('The request was not sent: ' + (error instanceof Error ? error.message : String(error))) } : v))
+    return
+  } finally {
+    if (stopRecommend === stop) stopRecommend = null
+  }
+  const counts = await countRecommend($, r.priceModel, result.usage)
+  const isAnswered = result.isAnswered && typeof result.text === 'string'
+  await update($, recommend, (v) => (v?.id === r.id ? { ...v, phase: isAnswered ? ('answered' as const) : ('failed' as const), text: isAnswered ? drawableText(result.text!) : failureText(result), counts } : v))
+}
+
+// The usage of the call goes into the totals and the hours under the scope recommend, so the Session and the Week tab show its cost.
+// The call does not use the cache of a conversation, so a cache write has the 5-minute price, as in a subagent
+async function countRecommend($: any, priceModel: string, usage: CallUsage | undefined): Promise<Counts | null> {
+  if (!usage) return null
+  const record = { model: priceModel, ...usage }
+  const counts = countsOf(record, costOf(record, true))
+  if (counts.input + counts.output + counts.cacheRead + counts.cacheWrite === 0) return null
+  const at = await $.clock.now()
+  await update($, totals, (t) => addTo(t, priceModel, RECOMMEND_SCOPE, counts))
+  await update($, hours, (h) => addTo(h, hourKey(at), priceModel + '|' + RECOMMEND_SCOPE, counts))
+  isDirty = true
+  return counts
+}
+
+// A close of the dialog stops a call that runs, because its reply has no place to show.
+// The mod's own $.ui.close does not pass its own ui.close hook, so Cancel does the same work as the hook
+async function endRecommend($: any): Promise<void> {
+  stopRecommend?.abort()
+  await update($, recommend, () => null)
+}
+
+// A reload of the module drops a call that runs, with the old module. The dialog then says so, instead of waiting for a reply that does not come
+async function dropStaleAsk($: any): Promise<void> {
+  await update($, recommend, (v) => (v?.phase === 'asking' ? { ...v, phase: 'failed' as const, text: STALE_ASK } : v))
+}
+
+async function closeRecommend($: any): Promise<void> {
+  await endRecommend($)
+  await $.ui.close({ id: RECOMMEND_PANE })
+}
+
 // The state of the old conversation must not reach the new one
 async function resetConversation($: any): Promise<void> {
   await update($, totals, () => ({}))
@@ -208,12 +314,17 @@ async function seedResumed($: any, e: { seconds_since_last_response?: unknown; c
   await update($, threads, (t) => ({ ...t, main: at }))
 }
 
-export const register: Register = (on) => {
+export const register: Register = (on, options) => {
+  // A change of the option in /config loads the module again
+  const recommendModel = modelOption(options)
+
   on('session.start', async ($, e, next) => {
     try {
       await ensureRun($)
       isDirty = true
       await loadLimits($)
+      // session.start also runs after a reload of the module
+      await dropStaleAsk($)
     } catch {
       // The timers and the command are still registered
     }
@@ -227,7 +338,7 @@ export const register: Register = (on) => {
       void tick($)
     })
     try {
-      await $.command.register({ name: 'token-watch', description: 'Show token use, plan limits and cache temperature', immediate: true })
+      await $.command.register({ name: 'token-watch', description: 'Show token use, plan limits and cache temperature', argumentHint: '[recommend]', immediate: true })
     } catch {
       // The name is taken after a reload; the command from the first load stays
     }
@@ -305,7 +416,8 @@ export const register: Register = (on) => {
     }
     return next(e)
   })
-  on('command.run', { command: 'token-watch' }, async ($) => {
+  on('command.run', { command: 'token-watch' }, async ($, e) => {
+    if (e.args.trim() === 'recommend') return openRecommend($, recommendModel)
     await loadOthers($)
     if ((await read($, tab)) === 4) await loadBreakdown($)
     try {
@@ -329,6 +441,17 @@ export const register: Register = (on) => {
     const theirs = await next(e)
     const line = bandEls(E, data, e.surface, e.props.bodyColumns)
     return (theirs ? E.Box({ flexDirection: 'column', children: [line, theirs] }) : line) as never
+  })
+
+  // Esc and the close mark of the person
+  on('ui.close', { id: RECOMMEND_PANE }, async ($, e, next) => {
+    await endRecommend($)
+    return next(e)
+  }).catch(($, e, next) => next(e)) // The pane closes in all cases
+
+  on('ui.render', { component: 'Pane', requestId: RECOMMEND_PANE }, async ($, e) => {
+    const E = $.ui.resolve(e) as unknown as Els
+    return recommendEls(E, await read($, recommend), { onAsk: () => askRecommend($), onCancel: () => closeRecommend($) }, e.props.bodyColumns) as never
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

@@ -1,6 +1,6 @@
 {
   "name": "token-watch",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shows token use, plan limits and cache temperature of the sessions on this Mac",
   "author": {
     "name": "Sebastian Varga"
@@ -19,5 +19,14 @@
   "documentationUrl": "https://github.com/arviaja/token-watch#readme",
   "supportUrl": "https://github.com/arviaja/token-watch/issues",
   "privacyPolicyUrl": "https://github.com/arviaja/token-watch/blob/main/PRIVACY.md",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "recommendModel": {
+      "type": "string",
+      "title": "Model of /token-watch recommend",
+      "description": "The model alias of the call. It resolves like --model to the newest model of its family.",
+      "options": ["sonnet", "opus", "haiku"],
+      "default": "sonnet"
+    }
+  }
 }

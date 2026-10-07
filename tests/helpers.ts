@@ -15,6 +15,10 @@ export const BREAKDOWN = {
   agents: [],
 }
 
+// The reply of the stub of $.model.complete
+export const REPLY_USAGE = { input_tokens: 2_400, output_tokens: 800, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+export const REPLY = { isAnswered: true, text: '## Start a new session after a long pause\n\nTwo resumes wrote 412k tokens again.', usage: REPLY_USAGE }
+
 let nextUsage: unknown = null
 
 export type Harness = {
@@ -22,6 +26,10 @@ export type Harness = {
   clock: ReturnType<typeof mock.clock>
   opened: unknown[]
   registered: unknown[]
+  // Each request of $.model.complete. The stub answers it: no test makes a real model call
+  modelCalls: any[]
+  // Each pane that the mod closed
+  closed: unknown[]
   // How often the mod listed the keys of the store
   keyCalls: { count: number }
   // How often the mod read the agent list
@@ -32,10 +40,12 @@ export type Harness = {
 // Each failure is read at each call, so a test can turn it on after the start
 export type Failures = { sessionId?: boolean; agentList?: boolean }
 
-export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures } = {}): Harness {
+export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures; modelResult?: { deny: string } | { value: unknown } | (($: any) => Promise<{ deny: string } | { value: unknown }>); breakdown?: unknown } = {}): Harness {
   const store = new Map<string, unknown>(Object.entries(options.store ?? {}))
   const opened: unknown[] = []
   const registered: unknown[] = []
+  const modelCalls: any[] = []
+  const closed: unknown[] = []
   const keyCalls = { count: 0 }
   let isPaneUp = false
   const clock = mock.clock(on, { now: T0 })
@@ -58,7 +68,7 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
   on('session.root', () => ({ value: '/Users/me/repos/webshop/.worktrees/fix-1-x' }))
   on('session.usage', (_$: unknown, e: { breakdown?: string } | undefined) => ({
     value: {
-      context: { tokens: 0, window: 1_000_000, percent: 0, ...(e?.breakdown ? { breakdown: BREAKDOWN } : {}) },
+      context: { tokens: 0, window: 1_000_000, percent: 0, ...(e?.breakdown ? { breakdown: options.breakdown ?? BREAKDOWN } : {}) },
       rateLimits: [
         { kind: 'seven_day', percentUsed: 41, resetsAt: RESETS_AT },
         { kind: 'five_hour', percentUsed: 12 },
@@ -78,6 +88,18 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
     return { value: { isPlaced: true } }
   })
   on('ui.panes', () => ({ value: isPaneUp ? [{ id: 'token-watch', title: 'token-watch', isShown: true, isFocused: true, isPlaced: true }] : [] }))
+  on('ui.close', (_$: unknown, e: unknown) => {
+    closed.push(e)
+    return { value: undefined }
+  })
+  // The stub of $.model.complete. It stands for the engine, so no request leaves the test
+  // A function result runs at the call, for example to close the dialog while the call runs
+  on('model.complete', async (_$: unknown, e: unknown) => {
+    modelCalls.push(e)
+    const result = options.modelResult
+    if (typeof result === 'function') return result(_$)
+    return result ?? { value: REPLY }
+  })
   on('session.start', () => ({ cwd: '/work' }))
   on('session.end', (_$: unknown, e: { sessionId: string }) => ({ sessionId: e.sessionId }))
   on('session.measure', (_$: unknown, e: { changed: unknown }) => ({ changed: e.changed }))
@@ -99,7 +121,7 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
     yield { kind: 'text', index: 0, text: 'ok' }
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: nextUsage }
   })
-  return { store, clock, opened, registered, keyCalls, agentListCalls }
+  return { store, clock, opened, registered, modelCalls, closed, keyCalls, agentListCalls }
 }
 
 export async function start($: any) {

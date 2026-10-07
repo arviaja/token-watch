@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { costOf } from '../hooks/prices'
+import { REPLY_USAGE } from './helpers'
 import { FABLE, MIN, RESETS_AT, SONNET, T0, complete, end, harness, snapshotIn, spawn, start, step, type Failures } from './helpers'
 
 const OLD = { v: 1, key: 'run:old:1', sessionId: 'old', repo: 'x', model: 'm', updatedAt: T0 - 9 * 24 * 60 * MIN, lastMainRequestAt: null, contextTokens: 0, isWorking: false, readings: [], hours: {} }
@@ -8,7 +9,7 @@ const RECENT = { ...OLD, key: 'run:recent:1', sessionId: 'recent', updatedAt: T0
 test('session start registers the command, deletes old and bad snapshots and reads the limits', async ($, on) => {
   const h = harness(on, { store: { 'run:old:1': OLD, 'run:recent:1': RECENT, 'run:bad:1': 'garbage', 'other-key': 1 } })
   await start($)
-  expect(h.registered[0]).toMatchObject({ name: 'token-watch', immediate: true })
+  expect(h.registered[0]).toMatchObject({ name: 'token-watch', immediate: true, argumentHint: '[recommend]' })
   await h.clock.advance(5_000)
   await h.clock.settle()
   expect(h.store.has('run:old:1')).toBe(false)
@@ -264,4 +265,108 @@ test('a refused pane open does not throw into the session', async ($, on) => {
   await start($)
   const answer = (await $.command.run({ command: 'token-watch', args: '' })) as { text?: string }
   expect(answer.text).toMatch(/^The token-watch pane did not open:/)
+})
+
+// The dialog of /token-watch recommend, for a press on its buttons
+const RECOMMEND_PANE = {
+  plugin: 'token-watch',
+  component: 'Pane',
+  requestId: 'token-watch-recommend',
+  surface: 'terminal',
+  viewport: { columns: 200, rows: 50 },
+  props: { title: 'token-watch recommend', isFocused: true, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+} as const
+
+async function ask($: any): Promise<void> {
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  const ui = await $.ui.mount(RECOMMEND_PANE)
+  await ui.press({ key: 'recommend-ask' })
+  await ui.unmount()
+}
+
+test('the usage of the call goes into the hours of the snapshot under the scope recommend, with its cost', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  await ask($)
+  await end($)
+  const hour = snapshotIn(h.store).hours['2026-10-06T12']
+  const usage = { model: 'claude-sonnet', ...REPLY_USAGE }
+  // The call has no cache of a conversation: a cache write would have the 5-minute price, as in a subagent
+  expect(hour['claude-sonnet|recommend']).toEqual({ input: 2_400, output: 800, cacheRead: 0, cacheWrite: 0, requests: 1, cost: costOf(usage, true) })
+  expect(hour['claude-sonnet|recommend'].cost).toBeGreaterThan(0)
+  expect(hour['claude-fable-5-1|main'].requests).toBe(1)
+})
+
+test('a call without a reply counts the tokens it used, and a call that used none counts nothing', async ($, on) => {
+  const used = { input_tokens: 2_400, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  let h = harness(on, { modelResult: { value: { isAnswered: false, reason: 'empty-reply', usage: used } } })
+  await start($)
+  await step($, FABLE)
+  await ask($)
+  await end($)
+  expect(snapshotIn(h.store).hours['2026-10-06T12']['claude-sonnet|recommend']).toMatchObject({ input: 2_400, output: 50, requests: 1 })
+})
+
+test('a call that used no tokens adds no row', async ($, on) => {
+  const h = harness(on, { modelResult: { value: { isAnswered: false, reason: 'aborted', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } } })
+  await start($)
+  await step($, FABLE)
+  await ask($)
+  await end($)
+  expect(Object.keys(snapshotIn(h.store).hours['2026-10-06T12'])).toEqual(['claude-fable-5-1|main'])
+})
+
+test('Cancel while the call runs drops the reply, and the tokens of the call still count', async ($, on) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const h = harness(on, {
+    modelResult: async () => {
+      await gate
+      return { value: { isAnswered: false, reason: 'aborted', usage: { input_tokens: 2_400, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+    },
+  })
+  await start($)
+  await step($, FABLE)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  const ui = await $.ui.mount(RECOMMEND_PANE)
+  const asking = ui.press({ key: 'recommend-ask' })
+  // The call runs: the dialog says so and offers Cancel
+  while (h.modelCalls.length === 0) await Promise.resolve()
+  expect(await ui.find({ type: 'Text', text: 'Asking sonnet…' })).toBeDefined()
+  await ui.press({ key: 'recommend-cancel' })
+  release()
+  await asking
+  expect(await ui.find({ type: 'Text', text: 'Run /token-watch recommend to ask for recommendations.' })).toBeDefined()
+  await ui.unmount()
+  await end($)
+  expect(h.modelCalls).toHaveLength(1)
+  expect(snapshotIn(h.store).hours['2026-10-06T12']['claude-sonnet|recommend']).toMatchObject({ input: 2_400, output: 0, requests: 1 })
+})
+
+test('a reload of the module while the call runs turns the dialog from asking into a message', async ($, on) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const h = harness(on, {
+    modelResult: async () => {
+      await gate
+      return { value: { isAnswered: false, reason: 'aborted', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+    },
+  })
+  await start($)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  const ui = await $.ui.mount(RECOMMEND_PANE)
+  const asking = ui.press({ key: 'recommend-ask' })
+  while (h.modelCalls.length === 0) await Promise.resolve()
+  expect(await ui.find({ type: 'Text', text: 'Asking sonnet…' })).toBeDefined()
+  // A reload runs session.start again
+  await start($)
+  expect(await ui.find({ type: 'Text', text: 'The call stopped: the mod loaded again while the call ran. Run /token-watch recommend again.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Asking sonnet…' })).toBeUndefined()
+  release()
+  await asking
 })

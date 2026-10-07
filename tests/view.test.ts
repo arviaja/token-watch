@@ -2,8 +2,8 @@ import { expect, test } from 'claude-code/testing'
 import { cell, dayTime, fitColumns, historyCells, line, markedCell, type HistoryCell } from '../hooks/format'
 import { barSvg, heat, heatText, sparkSvg, stageOf, stripCells, stripSvg, tubeAlt, tubeCells } from '../hooks/temperature'
 import { EMPTY, NO_CAUSES, NO_MAIN, addTo, countsOf, mainAfter, type NowRow } from '../hooks/tally'
-import type { Breakdown, Snapshot } from '../types'
-import { CAUSE_COLUMNS, HISTORY_COLUMNS, NOW_COLUMNS, SESSION_COLUMNS, TAB_LABELS, WEEK_COLUMNS, WHY_COLUMNS, bandCells as cellsOfBand, bandData, bandEls, barEls, cellTexts, helpEls, nowCells, nowEls, sessionCells, sessionEls, sparkEls, stripEls, svgBox, tableEls, tabsEls, weekData, weekEls, whyEls, type Els, type SessionData, type WeekData } from '../hooks/view'
+import type { Breakdown, Recommend, Snapshot } from '../types'
+import { CAUSE_COLUMNS, HISTORY_COLUMNS, NOW_COLUMNS, SESSION_COLUMNS, TAB_LABELS, WEEK_COLUMNS, WHY_COLUMNS, bandCells as cellsOfBand, bandData, bandEls, barEls, cellTexts, helpEls, nowCells, nowEls, recommendEls, sessionCells, sessionEls, sparkEls, stripEls, svgBox, tableEls, tabsEls, weekData, weekEls, whyEls, type Els, type SessionData, type WeekData } from '../hooks/view'
 import { HELP_SECTIONS } from './help-text'
 
 type Node = { type: string; props: Record<string, any> }
@@ -12,6 +12,7 @@ const E: Els = {
   Text: (props) => ({ type: 'Text', props }),
   Button: (props) => ({ type: 'Button', props }),
   Svg: (props) => ({ type: 'Svg', props }),
+  Markdown: (props) => ({ type: 'Markdown', props }),
 }
 const NO_SVG: Els = { ...E, Svg: undefined }
 const SURFACES = ['terminal', 'desktop']
@@ -2166,8 +2167,8 @@ test('the help tab has the sections, the terms and the explanations of the appro
 
 test('a term of the help tab is as long as a table column leaves, so that the explanation starts at one column', async () => {
   for (const [term] of HELP_ROWS) expect(Array.from(term).length, term).toBeLessThanOrEqual(21)
-  expect(HELP_ROWS).toHaveLength(34)
-  expect(HELP_HEADINGS).toEqual(['Band above the prompt', '1 Now', '2 Session', '3 Week', '4 Why', 'Costs'])
+  expect(HELP_ROWS).toHaveLength(36)
+  expect(HELP_HEADINGS).toEqual(['Band above the prompt', '1 Now', '2 Session', '3 Week', '4 Why', 'Costs', '/token-watch'])
 })
 
 test('the drawn terms of the help tab have the style of the place where they show, and every other term is plain', async () => {
@@ -2324,4 +2325,43 @@ test('the terms of the help tab are the labels that the band and the other tabs 
   // Costs: the mark of a fallback price and the word of a model without a price
   expect(markedCell('opus-5-6', SESSION_COLUMNS[0]).trim()).toBe(terms('Costs')[1])
   expect(nowCells(row({ model: 'unknown-model' }), T0)[4]).toBe(terms('Costs')[2])
+})
+
+// The dialog of /token-watch recommend, drawn from its state
+const DIALOG: Recommend = { id: 1, phase: 'confirm', model: 'sonnet', priceModel: 'claude-sonnet', prompt: 'p', inputTokens: 1_300, outputCap: 4_000, maxCost: 0.0426, text: '', counts: null }
+const ACTIONS = { onAsk: () => undefined, onCancel: () => undefined }
+
+test('the dialog shows the cost before the call, the wait, the reply and the reason, in its phases', async () => {
+  const confirm = flat(recommendEls(E, DIALOG, ACTIONS, 80))
+  expect(confirm).toContain('Ask sonnet for recommendations on this usage?')
+  expect(confirm).toContain('≈ 1.3k tokens, estimated from the length of the prompt')
+  expect(confirm).toContain('up to 4.0k tokens')
+  expect(confirm).toContain('≈ $0.04 at API prices of sonnet-5-5, with the full output cap')
+  expect(all(recommendEls(E, DIALOG, ACTIONS, 80), 'Button').map((b) => b.props.key)).toEqual(['recommend-ask', 'recommend-cancel'])
+  // A model without a price in the table has no cost
+  const unpriced = flat(recommendEls(E, { ...DIALOG, model: 'mythos', priceModel: 'claude-mythos', maxCost: null }, ACTIONS, 80))
+  expect(unpriced).toContain('unknown: the table of the mod has no price for this model')
+  // A full id with an exact price has no ≈
+  expect(flat(recommendEls(E, { ...DIALOG, model: 'claude-opus-5-5', priceModel: 'claude-opus-5-5', maxCost: 0.0852 }, ACTIONS, 80))).toContain('$0.09 at API prices of opus-5-5')
+  const asking = recommendEls(E, { ...DIALOG, phase: 'asking' }, ACTIONS, 80)
+  expect(flat(asking)).toContain('Asking sonnet…')
+  expect(all(asking, 'Button').map((b) => b.props.key)).toEqual(['recommend-cancel'])
+  const counts = { input: 2_400, output: 800, cacheRead: 0, cacheWrite: 0, requests: 1, cost: 0.0128 }
+  const answered = recommendEls(E, { ...DIALOG, phase: 'answered', text: '## One\n\nText.', counts }, ACTIONS, 80)
+  expect(all(answered, 'Markdown').map((m) => m.props.text)).toEqual(['## One\n\nText.'])
+  expect(all(answered, 'Button')).toEqual([])
+  expect(flat(answered)).toContain('sonnet · input 2.4k · output 800 · ≈ $0.01 at API prices · counted in the Session tab under the scope recommend')
+  const failed = flat(recommendEls(E, { ...DIALOG, phase: 'failed', text: 'The model sent a reply without text.' }, ACTIONS, 80))
+  expect(failed).toContain('No recommendations\nThe model sent a reply without text.')
+  expect(failed).not.toContain('counted in the Session tab')
+  expect(flat(recommendEls(E, null, ACTIONS, 80))).toBe('Run /token-watch recommend to ask for recommendations.')
+})
+
+test('a narrow dialog keeps the label column and gives the value at least 20 cells', async () => {
+  const rows = (available?: number) => all(recommendEls(E, DIALOG, ACTIONS, available), 'Box').filter((b) => b.props.width === 15)
+  expect(rows(80)).toHaveLength(5)
+  const values = (available?: number) => all(recommendEls(E, DIALOG, ACTIONS, available), 'Box').filter((b) => b.props.flexShrink === 1).map((b) => b.props.width)
+  expect(values(80)).toEqual([65, 65, 65, 65, 65])
+  expect(values(30)).toEqual([20, 20, 20, 20, 20])
+  expect(values(undefined)).toEqual([undefined, undefined, undefined, undefined, undefined])
 })
