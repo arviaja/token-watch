@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cell, fitColumns, historyCells, line, markedCell, type HistoryCell } from '../hooks/format'
+import { cell, dayTime, fitColumns, historyCells, line, markedCell, type HistoryCell } from '../hooks/format'
 import { barSvg, heat, heatText, sparkSvg, stageOf, stripCells, stripSvg, tubeAlt, tubeCells } from '../hooks/temperature'
 import { EMPTY, NO_CAUSES, NO_MAIN, addTo, countsOf, mainAfter, type NowRow } from '../hooks/tally'
 import type { Breakdown, Snapshot } from '../types'
@@ -265,6 +265,104 @@ test('the band without a tube leaves out the models, the context size, the age a
   // Without limits, the last text is the model
   const onlyModels = bandData(NO_MAIN, totals, [], null, T0)!
   expect(flat(bandEls(E, onlyModels, 'terminal', 10))).toBe(OPUS_TEXT)
+})
+
+// Limits with a reset time, read at T0. The week is at 49% after 72 of its 168 hours, the 5-hour window at 62% after 2 of its 5 hours.
+// Both reach 100% before their reset: the 5-hour window 73.5 minutes after the reading
+const HOUR_MS = 60 * MIN
+const WEEK_LIMIT = { kind: 'seven_day', percentUsed: 49, resetsAt: new Date(T0 + 96 * HOUR_MS).toISOString() }
+const FIVE_LIMIT = { kind: 'five_hour', percentUsed: 62, resetsAt: new Date(T0 + 3 * HOUR_MS).toISOString() }
+const PROJECTED_LIMITS = [WEEK_LIMIT, FIVE_LIMIT]
+const WEEK_FULL = ' → 100% ' + dayTime(T0 - 72 * HOUR_MS + (72 * HOUR_MS * 100) / 49)
+const FIVE_FULL = ' → 100% ' + dayTime(T0 - 2 * HOUR_MS + (2 * HOUR_MS * 100) / 62)
+const LIVE_TEXT = 'LIVE in turn · 296k cached'
+
+// The live conversation of bandCase with two models, and the limits read at limitsAt
+function projectedCase(limitsAt: number, now: number) {
+  let totals = addTo({}, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
+  totals = addTo(totals, 'claude-sonnet-5-5', 'main', countsOf(SONNET, 0.5))
+  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2), isWorking: true }
+  return bandData(main, totals, PROJECTED_LIMITS, limitsAt, now)!
+}
+
+test('the band shows the day and the time when each limit reaches 100%, after its percent, on both surfaces', async () => {
+  const limits = 'week 49%' + WEEK_FULL + ' · 5h 62%' + FIVE_FULL
+  expect(WEEK_FULL).toMatch(/^ → 100% (Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d\d:\d\d$/)
+  expect(FIVE_FULL).toMatch(/^ → 100% (Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d\d:\d\d$/)
+  for (const surface of SURFACES) {
+    const tree = bandEls(E, projectedCase(T0, T0), surface)
+    expect(afterTube(tree, surface), surface).toBe(LIVE_TEXT + ' | ' + limits + ' | ' + OPUS_TEXT + ' +1 model')
+    // The limits and their projections are one plain Text
+    const text = all(tree, 'Text').find((t) => flat(t) === limits)
+    expect(text, surface).toBeDefined()
+    expect(Object.keys(text!.props), surface).toEqual(['children'])
+  }
+})
+
+test('the band shows no projection for a limit that does not reach 100% before its reset, or that has no reset time', async () => {
+  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2), isWorking: true }
+  const totals = addTo({}, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
+  const slow = [
+    { ...WEEK_LIMIT, percentUsed: 30 },
+    { ...FIVE_LIMIT, percentUsed: 31 },
+  ]
+  expect(afterTube(bandEls(E, bandData(main, totals, slow, T0, T0)!), 'terminal')).toBe(LIVE_TEXT + ' | week 30% · 5h 31% | ' + OPUS_TEXT)
+  // Only the weekly limit reaches 100%
+  const onlyWeek = [WEEK_LIMIT, { ...FIVE_LIMIT, percentUsed: 31 }]
+  expect(afterTube(bandEls(E, bandData(main, totals, onlyWeek, T0, T0)!), 'terminal')).toBe(LIVE_TEXT + ' | week 49%' + WEEK_FULL + ' · 5h 31% | ' + OPUS_TEXT)
+  // No reset time, and the spend limit has no window
+  const noReset = [{ kind: 'seven_day', percentUsed: 49 }, { kind: 'five_hour', percentUsed: 62 }, { kind: 'spend_limit', percentUsed: 90, resetsAt: FIVE_LIMIT.resetsAt }]
+  expect(afterTube(bandEls(E, bandData(main, totals, noReset, T0, T0)!), 'terminal')).toBe(LIVE_TEXT + ' | week 49% · 5h 62% · spend 90% | ' + OPUS_TEXT)
+})
+
+test('the band leaves out the models, then the 5-hour projection, then the weekly projection, then the limits, on both surfaces', async () => {
+  const both = 'week 49%' + WEEK_FULL + ' · 5h 62%' + FIVE_FULL
+  const weekOnly = 'week 49%' + WEEK_FULL + ' · 5h 62%'
+  const plain = 'week 49% · 5h 62%'
+  const withModel = (limits: string) => LIVE_TEXT + ' | ' + limits + ' | ' + OPUS_TEXT
+  // The line with both projections is 91 cells on the desktop and 93 on the terminal, the model adds 30 and the count 9.
+  // Each width of the list leaves the same parts on both surfaces
+  const cases: [number, string][] = [
+    [140, withModel(both) + ' +1 model'],
+    [130, withModel(both)],
+    [110, LIVE_TEXT + ' | ' + both],
+    [90, LIVE_TEXT + ' | ' + weekOnly],
+    [70, LIVE_TEXT + ' | ' + plain],
+    [60, LIVE_TEXT],
+  ]
+  for (const surface of SURFACES) {
+    for (const [width, expected] of cases) {
+      const tree = bandEls(E, projectedCase(T0, T0), surface, width)
+      expect(afterTube(tree, surface), surface + ' at ' + width).toBe(expected)
+      expect(bandCells(tree, surface), surface + ' at ' + width).toBeLessThanOrEqual(width - 4)
+    }
+    // At every width the band keeps one line, and a wider band keeps every part of a narrower one
+    let last = ''
+    for (let width = 40; width <= 150; width++) {
+      const tree = bandEls(E, projectedCase(T0, T0), surface, width)
+      const text = afterTube(tree, surface)
+      if (width > 43) expect(bandCells(tree, surface), surface + ' at ' + width).toBeLessThanOrEqual(width - 4)
+      if (text.includes(FIVE_FULL)) expect(text, surface + ' at ' + width).toContain(WEEK_FULL)
+      if (text.includes(OPUS_TEXT)) expect(text, surface + ' at ' + width).toContain(both)
+      expect(text.length, surface + ' at ' + width).toBeGreaterThanOrEqual(last.length)
+      last = text
+    }
+  }
+})
+
+test('the band takes the pace up to the time of the reading, shows its age, and hides a projection whose time has passed', async () => {
+  const both = 'week 49%' + WEEK_FULL + ' · 5h 62%' + FIVE_FULL
+  for (const surface of SURFACES) {
+    // 70 minutes after the reading: the age shows, and the times are those of the reading. The 5-hour limit reaches 100% after 73.5 minutes
+    expect(afterTube(bandEls(E, projectedCase(T0, T0 + 70 * MIN), surface), surface)).toBe(LIVE_TEXT + ' | ' + both + ' (1h ago) | ' + OPUS_TEXT + ' +1 model')
+    // 80 minutes after the reading the 5-hour time has passed: only the weekly projection stays, with the time of the reading
+    expect(afterTube(bandEls(E, projectedCase(T0, T0 + 80 * MIN), surface), surface)).toBe(LIVE_TEXT + ' | week 49%' + WEEK_FULL + ' · 5h 62% (1h ago) | ' + OPUS_TEXT + ' +1 model')
+    // The age leaves before the projections
+    expect(afterTube(bandEls(E, projectedCase(T0, T0 + 70 * MIN), surface, 100), surface)).toBe(LIVE_TEXT + ' | ' + both)
+  }
+  // With the time of a reading both limits have a projection, without it neither has one
+  expect(projectedCase(T0, T0).limits.map((l) => l.projection)).toEqual([WEEK_FULL, FIVE_FULL])
+  expect(bandData(NO_MAIN, {}, PROJECTED_LIMITS, null, T0)!.limits.map((l) => l.projection)).toEqual(['', ''])
 })
 
 test('the band colours the stage word with the text colour of heat and the tube cells with the heat colour', async () => {
@@ -842,6 +940,22 @@ test('the day axis follows the weekday of the start of the week, whatever the ho
   const days = (start: number) => flat(columnsOf(axisRow(weekEls(E, { ...WEEK, start })))[1]).trim()
   // Monday 2026-10-05 at 00:00, 11:00 and 23:59 in local time
   for (const [h, m] of [[0, 0], [11, 0], [23, 59]]) expect(days(new Date(2026, 9, 5, h, m).getTime()), h + ':' + m).toBe('M T W T F S S')
+})
+
+test('weekData takes the pace of the week up to the weekly reading, not up to now', async () => {
+  // The week started on Sunday 11:00 in local time. The reading came on Tuesday 11:00, 48 hours later, at 50%
+  const readAt = new Date(2026, 9, 6, 11, 0).getTime()
+  const reading = { at: readAt, kind: 'seven_day', percentUsed: 50, resetsAt: new Date(2026, 9, 11, 11, 0).toISOString() }
+  const snap = { v: 1, key: 'run:a:1', sessionId: 'a', repo: 'webshop', model: 'claude-fable-5-1', updatedAt: readAt, lastMainRequestAt: readAt, contextTokens: 1000, isWorking: false, readings: [reading], hours: {} } as Snapshot
+  // 100% after 96 hours: Thursday 11:00. Seven hours later the time stays, and the pace up to now would give Thursday 21:00
+  expect(weekData([snap], readAt).projection).toBe('100% on Thu 11:00')
+  expect(weekData([snap], readAt + 7 * 60 * MIN).projection).toBe('100% on Thu 11:00')
+  // A later measure that kept the percent ends the pace at its time: 50% after 72 hours gives 100% after 144 hours, on Saturday 11:00
+  const held = { ...snap, readings: [{ ...reading, seenAt: readAt + 24 * 60 * MIN }] } as Snapshot
+  expect(weekData([held], readAt + 25 * 60 * MIN).projection).toBe('100% on Sat 11:00')
+  // On Thursday 11:00 the time has passed, and the row is left out
+  expect(weekData([snap], new Date(2026, 9, 8, 11, 0).getTime()).projection).toBe('')
+  expect(flat(weekEls(E, weekData([snap], new Date(2026, 9, 8, 12, 0).getTime())))).not.toContain('at the current rate')
 })
 
 test('weekData passes the start of the week to the view, so that the day axis starts at its weekday', async () => {
@@ -2017,7 +2131,7 @@ test('the help tab has the sections, the terms and the explanations of the appro
 
 test('a term of the help tab is as long as a table column leaves, so that the explanation starts at one column', async () => {
   for (const [term] of HELP_ROWS) expect(Array.from(term).length, term).toBeLessThanOrEqual(21)
-  expect(HELP_ROWS).toHaveLength(33)
+  expect(HELP_ROWS).toHaveLength(34)
   expect(HELP_HEADINGS).toEqual(['Band above the prompt', '1 Now', '2 Session', '3 Week', '4 Why', 'Costs'])
 })
 
@@ -2133,8 +2247,8 @@ test('the help tab is one tree on both surfaces: the same rows, and an Svg only 
 })
 
 test('the terms of the help tab are the labels that the band and the other tabs draw', async () => {
-  // A digit group and its unit stand for any number: 47m, 412k and 31M are examples
-  const shape = (value: string) => value.replace(/\d+(\.\d+)?[kM]?/g, '#')
+  // A digit group and its unit stand for any number: 47m, 412k and 31M are examples. A day name stands for any day
+  const shape = (value: string) => value.replace(/\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/g, 'Day').replace(/\d+(\.\d+)?[kM]?/g, '#')
   const terms = (title: string) => HELP_SECTIONS.find((s) => s.title === title)!.rows.map(([term]) => term)
   // A term lists labels with a comma. The labels of a tab, as its table and grid draw them
   const labels = {
@@ -2151,7 +2265,12 @@ test('the terms of the help tab are the labels that the band and the other tabs 
   let totals = addTo({}, 'claude-fable-5-1', 'main', countsOf(FABLE, 3.11))
   totals = addTo(totals, 'claude-sonnet-5-5', 'main', countsOf(SONNET, 0.5))
   const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2)
-  const band = shape(flat(bandEls(E, bandData(main, totals, LIMITS, T0, T0 + 13 * MIN)!)))
+  // The 5-hour window started 20 minutes before the reading: at 12%, it reaches 100% before its reset, and the week has no reset time
+  const projected = [
+    { kind: 'seven_day', percentUsed: 41 },
+    { kind: 'five_hour', percentUsed: 12, resetsAt: new Date(T0 + 280 * MIN).toISOString() },
+  ]
+  const band = shape(flat(bandEls(E, bandData(main, totals, projected, T0, T0 + 13 * MIN)!)))
   for (const term of terms('Band above the prompt').slice(6)) expect(band, term).toContain(shape(term))
   expect(terms('Band above the prompt').slice(1, 6)).toEqual(HELP_STAGES.map(([stage]) => stage))
   // Tab 1: the header cells, and the selected row

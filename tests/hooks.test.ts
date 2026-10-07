@@ -121,6 +121,19 @@ test('session.measure adds a reading when a percent moves a whole point', async 
   expect(snapshotIn(h.store).readings.map((r: any) => r.percentUsed)).toEqual([41, 42])
 })
 
+test('session.measure with the same percent moves the seenAt of the weekly reading in the snapshot', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await h.clock.advance(30 * MIN)
+  await $.session.measure({ context: { tokens: 1, window: 1_000_000, percent: 1 }, rateLimits: [{ kind: 'seven_day', percentUsed: 41.6, resetsAt: RESETS_AT }], changed: ['context'] })
+  await step($, FABLE)
+  await end($)
+  const [reading] = snapshotIn(h.store).readings
+  expect(reading.percentUsed).toBe(41)
+  expect(reading.at).toBe(T0)
+  expect(reading.seenAt).toBe(T0 + 30 * MIN)
+})
+
 test('the 15-second tick writes the snapshot when there is new data', async ($, on) => {
   const h = harness(on)
   await start($)

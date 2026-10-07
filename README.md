@@ -12,9 +12,10 @@ The mod only observes. It does not change, block or delay a request, a tool call
 - The stage: `LIVE` during a turn, then `HOT`, `WARM`, `COOLING` and `COLD`, with the minutes left.
 - The context tokens that the cache holds and the cost to write them to the cache again (`$0.50 to re-warm`). When the cache is cold: the tokens and the cost that the next message writes again. A cost from a fallback price (see Limits) has a `≈`: `≈ $0.50 to re-warm`.
 - The weekly and 5-hour percent used of the plan, joined with a dot: `week 49% · 5h 8%`. An old reading shows its age: `(2h ago)`.
+- When a limit reaches 100% before its reset at the pace so far, the day and the time of 100% follow its percent: `week 49% → 100% Sat 21:06 · 5h 62% → 100% Wed 15:31`. The pace runs from the start of the window of the limit up to the reading. The 5-hour window starts 5 hours before its reset, the weekly window 7 days before. A time that has passed does not show.
 - The cache read, cache write and output tokens of this conversation for the model with the highest cost. A dimmed `+1 model` or `+N models` names the other models.
 
-The band stays on one line. It takes the width that Claude Code gives it, keeps 4 cells free, and leaves out parts from the right when it is too wide: first the count of the other models, then the model, then the age of the limits, then the limits. The tube, the stage and its label always stay.
+The band stays on one line. It takes the width that Claude Code gives it, keeps 4 cells free, and leaves out parts when it is too wide, in this order: the count of the other models, the model, the age of the limits, the 5-hour projection, the weekly projection, the limits. The tube, the stage and its label always stay.
 
 In the terminal, the tube is drawn with block characters. In the desktop app, the tube is an SVG, because the desktop app uses a proportional font. The bars of the pane follow the same rule: block characters in the terminal, SVG in the desktop app.
 

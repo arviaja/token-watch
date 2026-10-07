@@ -11,6 +11,8 @@ const HISTORY_MS = 12 * 3_600_000
 const HISTORY_CELLS = 14
 const LIMIT_LABELS: Record<string, string> = { seven_day: 'week', five_hour: '5h', spend_limit: 'spend' }
 const LIMIT_ORDER = ['seven_day', 'five_hour', 'spend_limit']
+// The window of a limit ends at its reset. The spend limit has no window, so it has no projection
+const LIMIT_WINDOWS: Record<string, number> = { seven_day: 7 * 24 * 3_600_000, five_hour: 5 * 3_600_000 }
 
 export function formatTokens(n: number): string {
   if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return '0'
@@ -159,15 +161,31 @@ export function limitsAgeText(limitsAt: number | null, now: number): string {
   return limitsAt !== null && now - limitsAt > 30 * 60_000 ? '(' + ageText(now - limitsAt) + ' ago)' : ''
 }
 
-// The limits joined with ` · `, then the age. Pass null for limitsAt to get the limits alone
-export function limitsText(limits: Limit[], limitsAt: number | null, now: number): string {
-  if (limits.length === 0) return ''
-  const text = [...limits]
+// A limit in the band: its kind, its text (`week 49%`) and its projection (` → 100% Sat 21:06`, or empty)
+export type LimitItem = { kind: string; text: string; projection: string }
+
+// The limits in the order week, 5h, spend. readAt is the time of the reading, or null for no projections
+export function limitItems(limits: Limit[], readAt: number | null, now: number): LimitItem[] {
+  return [...limits]
     .sort((a, b) => rank(a.kind) - rank(b.kind))
-    .map((limit) => (LIMIT_LABELS[limit.kind] ?? limit.kind) + ' ' + formatPercent(limit.percentUsed))
-    .join(' · ')
-  const age = limitsAgeText(limitsAt, now)
-  return age === '' ? text : text + ' ' + age
+    .map((limit) => ({ kind: limit.kind, text: (LIMIT_LABELS[limit.kind] ?? limit.kind) + ' ' + formatPercent(limit.percentUsed), projection: limitProjection(limit, readAt, now) }))
+}
+
+// The time when a limit reaches 100%, at the pace from the start of its window up to the reading. Null without a pace.
+// The pace ends at the reading and not at now: an old reading would give a time that is too late
+export function fullAt(percent: number, start: number, readAt: number): number | null {
+  if (!Number.isFinite(percent) || percent <= 0 || readAt <= start) return null
+  return start + ((readAt - start) * 100) / percent
+}
+
+// The projection of a limit in the band: ` → 100% Sat 21:06`. It is empty for a limit without a window or a reset time,
+// when the limit reaches 100% at or after its reset, and when the time has passed: an old reading, or a limit at 100%
+export function limitProjection(limit: Limit, readAt: number | null, now: number): string {
+  const window = LIMIT_WINDOWS[limit.kind]
+  const resetAt = limit.resetsAt ? Date.parse(limit.resetsAt) : Number.NaN
+  if (window === undefined || readAt === null || !Number.isFinite(resetAt)) return ''
+  const at = fullAt(limit.percentUsed, resetAt - window, readAt)
+  return at !== null && at < resetAt && at > now ? ' → 100% ' + dayTime(at) : ''
 }
 
 // rewarm is the cost to write the context again, or null for a model without a price. isEstimated marks a cost from a fallback price with `≈`
@@ -198,12 +216,13 @@ export function dayTime(ms: number): string {
   return DAYS[d.getDay()] + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
 }
 
-export function projectionText(percent: number | null, start: number, now: number, resetAt: number | null): string {
-  if (percent === null || resetAt === null) return ''
-  const below = 'below 100% at reset'
-  if (percent <= 0 || now <= start) return below
-  const eta = start + ((now - start) * 100) / percent
-  return eta >= resetAt ? below : '100% on ' + dayTime(eta)
+// The projection of the Week tab. readAt is the time of the weekly reading, or null without a reading.
+// A time that has passed is left out, as in the band
+export function projectionText(percent: number | null, start: number, readAt: number | null, resetAt: number | null, now: number): string {
+  if (percent === null || readAt === null || resetAt === null) return ''
+  const at = fullAt(percent, start, readAt)
+  if (at === null || at >= resetAt) return 'below 100% at reset'
+  return at > now ? '100% on ' + dayTime(at) : ''
 }
 
 // Always the 14 periods of the week: a period that starts at or after now is a future cell, a past period without a reading is an empty cell

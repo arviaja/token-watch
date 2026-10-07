@@ -103,19 +103,20 @@ async function prune($: any): Promise<void> {
   }
 }
 
-async function saveLimits($: any, list: readonly { kind: string; percentUsed: number; resetsAt?: string }[]): Promise<void> {
+// readAt is the time of the API response that reported the limits. Without it, the limits count as read now
+async function saveLimits($: any, list: readonly { kind: string; percentUsed: number; resetsAt?: string }[], readAt?: number): Promise<void> {
   if (list.length === 0) return
-  const now = await $.clock.now()
+  const at = readAt ?? (await $.clock.now())
   await update($, limits, () => list.map((l) => ({ ...l })))
-  await update($, limitsAt, () => now)
-  await update($, readings, (r) => addReadings(r, list, now))
+  await update($, limitsAt, () => at)
+  await update($, readings, (r) => addReadings(r, list, at))
   isDirty = true
 }
 
-async function loadLimits($: any): Promise<void> {
+async function loadLimits($: any, readAt?: number): Promise<void> {
   try {
     const usage = await $.session.usage()
-    await saveLimits($, usage.rateLimits ?? [])
+    await saveLimits($, usage.rateLimits ?? [], readAt)
   } catch {
     // The first session.measure brings the limits
   }
@@ -235,11 +236,13 @@ export const register: Register = (on) => {
 
   // A new conversation has empty state and gets its own store key
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
+    // The limits of the session come from its last API response, which can be older than the new conversation: they keep the time of the last reading
+    const lastReadAt = await read($, limitsAt)
     await newRun($)
     await resetConversation($)
     if (e.source === 'resume' || e.source === 'fork') await seedResumed($, e)
     isDirty = true
-    await loadLimits($)
+    await loadLimits($, lastReadAt ?? undefined)
     return next(e)
   }).catch(($, e, next) => next(e)) // Observation only; the session start goes on
 

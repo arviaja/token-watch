@@ -85,6 +85,8 @@ test('addReadings adds a reading only when a percent moves a whole point or the 
   r = addReadings(r, [{ kind: 'seven_day', percentUsed: 42, resetsAt: 'x' }], T0 + 2 * MIN)
   r = addReadings(r, [{ kind: 'seven_day', percentUsed: 42, resetsAt: 'y' }], T0 + 3 * MIN)
   expect(r.map((x) => x.percentUsed)).toEqual([41, 42, 42])
+  // A measure within a whole point moves the seenAt of the reading, not its percent or its start
+  expect(r.map((x) => [x.at, x.seenAt])).toEqual([[T0, T0 + MIN], [T0 + 2 * MIN, undefined], [T0 + 3 * MIN, undefined]])
   const many = Array.from({ length: 500 }, (_, i) => ({ at: i, kind: 'k' + i, percentUsed: 1 }))
   expect(addReadings(many, [], T0).length).toBe(400)
 })
@@ -157,22 +159,57 @@ test('nowRows shows a working session as not working after 10 minutes without a 
 test('weekOf uses the latest weekly reading', async () => {
   const resetsAt = new Date(T0 + 5 * DAY_MS).toISOString()
   const w = weekOf([{ at: T0 - MIN, kind: 'seven_day', percentUsed: 40, resetsAt }, { at: T0, kind: 'seven_day', percentUsed: 41, resetsAt }], T0)
-  expect(w).toEqual({ start: T0 - 2 * DAY_MS, resetAt: T0 + 5 * DAY_MS, percent: 41 })
-  expect(weekOf([], T0)).toEqual({ start: T0 - 7 * DAY_MS, resetAt: null, percent: null })
+  expect(w).toEqual({ start: T0 - 2 * DAY_MS, resetAt: T0 + 5 * DAY_MS, percent: 41, readAt: T0 })
+  expect(weekOf([], T0)).toEqual({ start: T0 - 7 * DAY_MS, resetAt: null, percent: null, readAt: null })
   const old = new Date(T0 - DAY_MS).toISOString()
-  expect(weekOf([{ at: T0 - 2 * DAY_MS, kind: 'seven_day', percentUsed: 90, resetsAt: old }], T0)).toEqual({ start: T0 - DAY_MS, resetAt: T0 + 6 * DAY_MS, percent: null })
+  expect(weekOf([{ at: T0 - 2 * DAY_MS, kind: 'seven_day', percentUsed: 90, resetsAt: old }], T0)).toEqual({ start: T0 - DAY_MS, resetAt: T0 + 6 * DAY_MS, percent: null, readAt: null })
+})
+
+test('weekOf gives the time of the latest weekly reading, also when now is later', async () => {
+  const resetsAt = new Date(T0 + 5 * DAY_MS).toISOString()
+  const w = weekOf([{ at: T0 - 3 * 60 * MIN, kind: 'seven_day', percentUsed: 41, resetsAt }, { at: T0 - 60 * MIN, kind: 'five_hour', percentUsed: 9 }], T0)
+  expect(w.readAt).toBe(T0 - 3 * 60 * MIN)
+  expect(w.percent).toBe(41)
+})
+
+test('addReadings moves the seenAt of the last reading of each kind, and never back', async () => {
+  const resetsAt = 'x'
+  let r = addReadings([], [{ kind: 'seven_day', percentUsed: 41, resetsAt }, { kind: 'five_hour', percentUsed: 10 }], T0)
+  r = addReadings(r, [{ kind: 'seven_day', percentUsed: 41.4, resetsAt }, { kind: 'five_hour', percentUsed: 12 }], T0 + 60 * MIN)
+  r = addReadings(r, [{ kind: 'seven_day', percentUsed: 41.8, resetsAt }], T0 + 120 * MIN)
+  expect(r).toEqual([
+    { at: T0, kind: 'seven_day', percentUsed: 41, resetsAt, seenAt: T0 + 120 * MIN },
+    { at: T0, kind: 'five_hour', percentUsed: 10 },
+    { at: T0 + 60 * MIN, kind: 'five_hour', percentUsed: 12 },
+  ])
+  // An earlier measure leaves seenAt as it is
+  expect(addReadings(r, [{ kind: 'seven_day', percentUsed: 41, resetsAt }], T0 + 30 * MIN)[0]?.seenAt).toBe(T0 + 120 * MIN)
+})
+
+test('weekOf takes the reading with the last measure, and its seenAt as the time of the reading', async () => {
+  const resetsAt = new Date(T0 + 5 * DAY_MS).toISOString()
+  // One session saw 41% first at T0 - 5 h and last at T0 - 1 h; another session saw 40% at T0 - 3 h and never again
+  const held = { at: T0 - 5 * 60 * MIN, kind: 'seven_day', percentUsed: 41, resetsAt, seenAt: T0 - 60 * MIN }
+  const other = { at: T0 - 3 * 60 * MIN, kind: 'seven_day', percentUsed: 40, resetsAt }
+  const w = weekOf([held, other], T0)
+  expect(w.percent).toBe(41)
+  expect(w.readAt).toBe(T0 - 60 * MIN)
 })
 
 test('weekOf moves a reset in the past forward by whole weeks', async () => {
   const old = new Date(T0 - 9 * DAY_MS).toISOString()
   const w = weekOf([{ at: T0 - 10 * DAY_MS, kind: 'seven_day', percentUsed: 90, resetsAt: old }], T0)
-  expect(w).toEqual({ start: T0 - 2 * DAY_MS, resetAt: T0 + 5 * DAY_MS, percent: null })
+  expect(w).toEqual({ start: T0 - 2 * DAY_MS, resetAt: T0 + 5 * DAY_MS, percent: null, readAt: null })
 })
 
 test('mergeReadings drops a reading with a resetsAt that is not a string', async () => {
   const good = { at: 1, kind: 'seven_day', percentUsed: 5, resetsAt: 'x' }
   const bad = { at: 2, kind: 'seven_day', percentUsed: 6, resetsAt: 123 }
   expect(mergeReadings([snap({ readings: [good, bad] })] as never)).toEqual([good])
+  // A seenAt that is not a number drops the reading too
+  const seen = { ...good, at: 3, seenAt: 4 }
+  const badSeen = { ...good, at: 5, seenAt: '6' }
+  expect(mergeReadings([snap({ readings: [seen, badSeen] })] as never)).toEqual([seen])
 })
 
 test('groupWeek ignores hour buckets with a malformed key', async () => {

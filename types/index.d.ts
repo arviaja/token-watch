@@ -17,7 +17,8 @@ export type Causes = Record<Cause, { tokens: number; cost: number }>
 
 export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
 
-export type Reading = { at: number; kind: string; percentUsed: number; resetsAt?: string }
+// at: the first measure of the percent. seenAt: the last measure that kept the percent within a whole point, when it came after at
+export type Reading = { at: number; kind: string; percentUsed: number; resetsAt?: string; seenAt?: number }
 
 export type Resume = { at: number; cost: number }
 

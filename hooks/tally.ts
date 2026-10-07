@@ -16,7 +16,8 @@ export const NO_MAIN: Main = { model: '', lastRequestAt: null, contextTokens: 0,
 export type Row = { model: string; scope: string; counts: Counts }
 // isUnpriced: the model has no price. isEstimated: the cost uses the fallback price of the newest model of the family
 export type Share = { name: string; cost: number; isUnpriced?: boolean; isEstimated?: boolean }
-export type Week = { start: number; resetAt: number | null; percent: number | null }
+// readAt is the time of the last measure of the weekly reading that gives the percent, or null without a percent
+export type Week = { start: number; resetAt: number | null; percent: number | null; readAt: number | null }
 export type NowRow = {
   key: string
   isCurrent: boolean
@@ -116,15 +117,25 @@ export function pruneHours(hours: Hours, now: number): Hours {
   return keep
 }
 
+// A new reading starts when a percent moves a whole point or the reset changes.
+// A measure that keeps the percent moves the seenAt of the last reading, so that the Week tab paces the week up to the last measure
 export function addReadings(readings: Reading[], limits: readonly Limit[], at: number): Reading[] {
   const next = [...readings]
   for (const limit of limits) {
-    const last = [...next].reverse().find((r) => r.kind === limit.kind)
+    const i = next.map((r) => r.kind).lastIndexOf(limit.kind)
+    const last = i === -1 ? undefined : next[i]
     if (!last || Math.abs(limit.percentUsed - last.percentUsed) >= 1 || last.resetsAt !== limit.resetsAt) {
       next.push({ at, kind: limit.kind, percentUsed: limit.percentUsed, ...(limit.resetsAt ? { resetsAt: limit.resetsAt } : {}) })
+    } else if (at > seenAtOf(last)) {
+      next[i] = { ...last, seenAt: at }
     }
   }
   return next.slice(-MAX_READINGS)
+}
+
+// The time of the last measure of a reading
+export function seenAtOf(r: Reading): number {
+  return r.seenAt ?? r.at
 }
 
 export function rowsOf(totals: Totals): Row[] {
@@ -228,20 +239,21 @@ export function nowRows(snaps: Snapshot[], currentKey: string, now: number): Now
 export function mergeReadings(snaps: Snapshot[]): Reading[] {
   return snaps
     .flatMap((s) => s.readings)
-    .filter((r) => isObj(r) && isNum(r.at) && typeof r.kind === 'string' && isNum(r.percentUsed) && (r.resetsAt === undefined || typeof r.resetsAt === 'string'))
+    .filter((r) => isObj(r) && isNum(r.at) && typeof r.kind === 'string' && isNum(r.percentUsed) && (r.resetsAt === undefined || typeof r.resetsAt === 'string') && (r.seenAt === undefined || isNum(r.seenAt)))
     .sort((a, b) => a.at - b.at)
 }
 
 export function weekOf(readings: Reading[], now: number): Week {
-  const latest = readings.filter((r) => r.kind === 'seven_day').sort((a, b) => a.at - b.at).pop()
+  // The reading with the last measure gives the percent, and the time of that measure ends the pace of the projection
+  const latest = readings.filter((r) => r.kind === 'seven_day').sort((a, b) => seenAtOf(a) - seenAtOf(b)).pop()
   const resetAt = latest?.resetsAt ? Date.parse(latest.resetsAt) : Number.NaN
-  if (!latest || !Number.isFinite(resetAt)) return { start: now - 7 * DAY_MS, resetAt: null, percent: null }
+  if (!latest || !Number.isFinite(resetAt)) return { start: now - 7 * DAY_MS, resetAt: null, percent: null, readAt: null }
   if (resetAt <= now) {
     const weeks = Math.floor((now - resetAt) / (7 * DAY_MS)) + 1
     const next = resetAt + weeks * 7 * DAY_MS
-    return { start: next - 7 * DAY_MS, resetAt: next, percent: null }
+    return { start: next - 7 * DAY_MS, resetAt: next, percent: null, readAt: null }
   }
-  return { start: resetAt - 7 * DAY_MS, resetAt, percent: latest.percentUsed }
+  return { start: resetAt - 7 * DAY_MS, resetAt, percent: latest.percentUsed, readAt: seenAtOf(latest) }
 }
 
 function splitKey(name: string): [string, string] {
