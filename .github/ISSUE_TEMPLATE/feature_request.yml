@@ -1,0 +1,16 @@
+name: Feature request
+description: A new function or a change of an existing one.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What you want to know or do, and why the mod does not let you do it today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Where it shows (band, which tab) and what it shows.

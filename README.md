@@ -117,6 +117,10 @@ Claude Code writes the type declarations of the installed version into `.claude-
 - [Design](docs/design/2026-10-06-token-watch-design.md)
 - [Verification](docs/verification.md): manual checks in real sessions, and the automated checks
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report a security problem privately, as [SECURITY.md](SECURITY.md) describes.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
