@@ -39,8 +39,9 @@ test('desktopCells gives the width of a text in the proportional font of the des
     expect(width, String.fromCharCode(code)).toBeGreaterThan(0.2)
     expect(width, String.fromCharCode(code)).toBeLessThan(2)
   }
-  // A character outside the tables counts as the widest one
-  expect(desktopCells('\u4e00')).toBe(desktopCells('W'))
+  // A character outside the tables counts as 2.2 cells, wider than W
+  expect(desktopCells('\u4e00')).toBe(2.2)
+  expect(desktopCells('\u4e00')).toBeGreaterThan(desktopCells('W'))
   // The band text of the screenshot that set the table: drawn 49.90 cells wide, estimated a little wider
   const width = desktopCells(' HOT 60m left · 488k cached · $3.91 to re-warm | week 57% · 5h 3%')
   expect(width).toBeGreaterThanOrEqual(49.9)

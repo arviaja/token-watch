@@ -69,8 +69,8 @@ const DESKTOP_ASCII = [
   101, 101, 66, 84, 68, 96, 92, 134, 93, 93, 82, 66, 50, 66, 104,
 ]
 const DESKTOP_OTHER: Record<string, number> = { '·': 39, '→': 133, '≈': 104, '…': 163 }
-// A character outside both tables counts as the widest one, W
-const DESKTOP_WIDEST = 172
+// A character outside both tables counts as 2.2 cells: wider than W (1.72) and than a full-width glyph (1 em, 1.62), and as wide as an emoji of 1.35 em
+const DESKTOP_WIDEST = 220
 
 // The width of a text on the desktop, in cells of its code font
 export function desktopCells(text: string): number {
