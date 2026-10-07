@@ -27,7 +27,8 @@ export type Harness = {
 }
 
 // Stubs for every mods API call and event the mod passes on, with a store in a Map
-// `fail` is read at each call, so a test can turn a failure on after the start
+// `sessionId` is read at each call, so a test can turn the failure on after the start.
+// `agentsState` is read once: with it, every write of the agents value is denied.
 export type Failures = { sessionId?: boolean; agentsState?: boolean }
 
 export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures } = {}): Harness {
@@ -52,8 +53,8 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
     return { value: undefined }
   })
   on('session.id', () => (options.fail?.sessionId ? { deny: 'no session id' } : { value: 'sess-1' }))
-  if (options.fail) {
-    on('state.set', { plugin: 'token-watch', key: 'agents' }, (_$: unknown, e: unknown, next: (e: unknown) => unknown) => (options.fail?.agentsState ? { deny: 'state full' } : next(e)))
+  if (options.fail?.agentsState) {
+    on('state.set', { plugin: 'token-watch', key: 'agents' }, () => ({ deny: 'state full' }))
   }
   on('session.model', () => ({ value: options.sessionModel ?? '' }))
   on('session.root', () => ({ value: '/Users/me/repos/webshop/.worktrees/fix-1-x' }))
