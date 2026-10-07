@@ -19,6 +19,9 @@ export const RECOMMEND_TIMEOUT_MS = 120_000
 export const RECOMMEND_EFFORT = 'medium'
 // The most rows of each Week table in the prompt
 const WEEK_ROWS = 10
+// A Markdown or a Text holds at most 10000 characters, and tab and newline are its only control characters
+const MAX_TEXT = 10_000
+const CUT_NOTE = '\n\n… (cut at 10,000 characters)'
 
 export const RECOMMEND_SYSTEM = [
   'You give advice on the Claude Code usage of one person. The data comes from token-watch, a Claude Code mod that counts the tokens of the sessions on this computer. The data holds token counts, costs, plan limits and the names of repos, memory files, MCP servers and agents. It holds no conversation text.',
@@ -71,6 +74,19 @@ export function failureText(r: CallFailure): string {
   return 'The call gave no reply.'
 }
 
+// A text that the dialog can draw: carriage returns and other control characters out, and at most 10000 characters.
+// A longer reply is cut, with a note, because the engine refuses a tree with a longer text and closes the pane
+export function drawableText(text: string): string {
+  const clean = text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
+  if (clean.length <= MAX_TEXT) return clean
+  let cut = ''
+  for (const char of Array.from(clean)) {
+    if (cut.length + char.length > MAX_TEXT - CUT_NOTE.length) break
+    cut += char
+  }
+  return cut + CUT_NOTE
+}
+
 // The id that prices the call and that the totals use. An alias has no version, so `sonnet` becomes `claude-sonnet`:
 // the price is the one of the newest Sonnet in the table, and the tabs mark the cost with ≈
 export function priceModelOf(model: string): string {
@@ -110,15 +126,17 @@ export function agoText(ms: number): string {
 function limitLines(d: RecommendInput): string[] {
   const items = limitItems(d.limits, d.limitsAt, d.now)
   if (items.length === 0) return ['No limit reading.']
+  // One reading gives all limits, so its age shows once: `(3h ago)` becomes `Last reading: 3h ago.`
   const age = limitsAgeText(d.limitsAt, d.now)
-  return items.map((item) => {
+  const lines = items.map((item) => {
     const limit = d.limits.find((l) => l.kind === item.kind)
     const reset = limit?.resetsAt ? Date.parse(limit.resetsAt) : Number.NaN
     const parts = [item.text + ' used']
     if (Number.isFinite(reset)) parts.push('resets ' + dayTime(reset))
     if (item.projection !== '') parts.push('100% at the current pace on ' + item.projection.replace(' → 100% ', ''))
-    return '- ' + parts.join(', ') + (age === '' ? '' : ' ' + age)
+    return '- ' + parts.join(', ')
   })
+  return age === '' ? lines : [...lines, 'Last reading: ' + age.slice(1, -1) + '.']
 }
 
 function costText(model: string, cost: number): string {

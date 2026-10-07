@@ -345,3 +345,28 @@ test('Cancel while the call runs drops the reply, and the tokens of the call sti
   expect(h.modelCalls).toHaveLength(1)
   expect(snapshotIn(h.store).hours['2026-10-06T12']['claude-sonnet|recommend']).toMatchObject({ input: 2_400, output: 0, requests: 1 })
 })
+
+test('a reload of the module while the call runs turns the dialog from asking into a message', async ($, on) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const h = harness(on, {
+    modelResult: async () => {
+      await gate
+      return { value: { isAnswered: false, reason: 'aborted', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+    },
+  })
+  await start($)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  const ui = await $.ui.mount(RECOMMEND_PANE)
+  const asking = ui.press({ key: 'recommend-ask' })
+  while (h.modelCalls.length === 0) await Promise.resolve()
+  expect(await ui.find({ type: 'Text', text: 'Asking sonnet…' })).toBeDefined()
+  // A reload runs session.start again
+  await start($)
+  expect(await ui.find({ type: 'Text', text: 'The call stopped: the mod loaded again while the call ran. Run /token-watch recommend again.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Asking sonnet…' })).toBeUndefined()
+  release()
+  await asking
+})

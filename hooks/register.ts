@@ -4,7 +4,7 @@ import type { Register } from 'claude-code'
 import type { Counts, Run, Snapshot } from '../types'
 import { repoName } from './format'
 import { costOf, priceInfo, tokens, writeCostOf } from './prices'
-import { OUTPUT_CAP, RECOMMEND_EFFORT, RECOMMEND_SCOPE, RECOMMEND_SYSTEM, RECOMMEND_TIMEOUT_MS, estimateTokens, failureText, maxCostOf, modelOption, priceModelOf, recommendPrompt, type CallUsage } from './recommend'
+import { OUTPUT_CAP, RECOMMEND_EFFORT, RECOMMEND_SCOPE, RECOMMEND_SYSTEM, RECOMMEND_TIMEOUT_MS, drawableText, estimateTokens, failureText, maxCostOf, modelOption, priceModelOf, recommendPrompt, type CallUsage } from './recommend'
 import { MAIN_TTL_MS, SUB_TTL_MS } from './temperature'
 import { KEEP_MS, NO_CAUSES, NO_MAIN, addCause, addReadings, addTo, breakdownOf, causeOf, contextOf, countsOf, hourKey, mainAfter, nowRows, parseSnapshot, rowsOf, runKey, snapshotOf, sumAll } from './tally'
 import { bandData, bandEls, helpEls, nowEls, paneEls, recommendEls, sessionEls, tabsEls, weekData, weekEls, whyEls, type Els } from './view'
@@ -29,6 +29,7 @@ const PANE = 'token-watch'
 // The dialog of /token-watch recommend is a pane of its own, so the tabs keep their state
 const RECOMMEND_PANE = 'token-watch-recommend'
 const RECOMMEND_TITLE = 'token-watch recommend'
+const STALE_ASK = 'The call stopped: the mod loaded again while the call ran. Run /token-watch recommend again.'
 
 // The module's own flags start over on a reload; the data lives in $.state and $.store
 let isDirty = false
@@ -237,14 +238,14 @@ async function askRecommend($: any): Promise<void> {
     result = await $.model.complete({ model: r.model, system: RECOMMEND_SYSTEM, prompt: r.prompt, maxTokens: r.outputCap, effort: RECOMMEND_EFFORT, timeoutMs: RECOMMEND_TIMEOUT_MS }, { signal: stop.signal })
   } catch (error) {
     // The engine refused to send the request, for example for a model that is not allowed. No call ran
-    await update($, recommend, (v) => (v?.id === r.id ? { ...v, phase: 'failed' as const, text: 'The request was not sent: ' + (error instanceof Error ? error.message : String(error)) } : v))
+    await update($, recommend, (v) => (v?.id === r.id ? { ...v, phase: 'failed' as const, text: drawableText('The request was not sent: ' + (error instanceof Error ? error.message : String(error))) } : v))
     return
   } finally {
     if (stopRecommend === stop) stopRecommend = null
   }
   const counts = await countRecommend($, r.priceModel, result.usage)
   const isAnswered = result.isAnswered && typeof result.text === 'string'
-  await update($, recommend, (v) => (v?.id === r.id ? { ...v, phase: isAnswered ? ('answered' as const) : ('failed' as const), text: isAnswered ? result.text! : failureText(result), counts } : v))
+  await update($, recommend, (v) => (v?.id === r.id ? { ...v, phase: isAnswered ? ('answered' as const) : ('failed' as const), text: isAnswered ? drawableText(result.text!) : failureText(result), counts } : v))
 }
 
 // The usage of the call goes into the totals and the hours under the scope recommend, so the Session and the Week tab show its cost.
@@ -266,6 +267,11 @@ async function countRecommend($: any, priceModel: string, usage: CallUsage | und
 async function endRecommend($: any): Promise<void> {
   stopRecommend?.abort()
   await update($, recommend, () => null)
+}
+
+// A reload of the module drops a call that runs, with the old module. The dialog then says so, instead of waiting for a reply that does not come
+async function dropStaleAsk($: any): Promise<void> {
+  await update($, recommend, (v) => (v?.phase === 'asking' ? { ...v, phase: 'failed' as const, text: STALE_ASK } : v))
 }
 
 async function closeRecommend($: any): Promise<void> {
@@ -317,6 +323,8 @@ export const register: Register = (on, options) => {
       await ensureRun($)
       isDirty = true
       await loadLimits($)
+      // session.start also runs after a reload of the module
+      await dropStaleAsk($)
     } catch {
       // The timers and the command are still registered
     }

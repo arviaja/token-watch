@@ -931,8 +931,48 @@ test('Ask runs one model call with the prompt and shows the reply as Markdown wi
     expect(await ui.find({ type: 'Button', key: 'recommend-ask' }), surface).toBeUndefined()
     await ui.unmount()
   }
-  // A second press of a stale Ask runs no second call
+})
+
+test('two quick presses of Ask run one model call', async ($, on) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const h = harness(on, {
+    modelResult: async () => {
+      await gate
+      return { value: REPLY }
+    },
+  })
+  await start($)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  const ui = await $.ui.mount(RECOMMEND('terminal'))
+  // Both presses target the Ask that is drawn now. The second one finds the dialog in the phase asking, or no Ask at all
+  const presses = [ui.press({ key: 'recommend-ask' }), ui.press({ key: 'recommend-ask' })]
+  while (h.modelCalls.length === 0) await Promise.resolve()
+  release()
+  await Promise.allSettled(presses)
   expect(h.modelCalls).toHaveLength(1)
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe(REPLY.text)
+})
+
+test('a reply longer than 10000 characters, or with a carriage return, is cut and drawn on both surfaces', async ($, on) => {
+  const long = '## Long\r\n\n' + 'word '.repeat(3_000)
+  harness(on, { modelResult: { value: { ...REPLY, text: long } } })
+  await start($)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  let ui = await $.ui.mount(RECOMMEND('terminal'))
+  await ui.press({ key: 'recommend-ask' })
+  await ui.unmount()
+  for (const surface of SURFACES) {
+    // The mount fails when the surface refuses the tree, so a mounted dialog shows that the text fits
+    ui = await $.ui.mount(RECOMMEND(surface))
+    const text: string = (await ui.find({ type: 'Markdown' }))?.props.text
+    expect(text.length, surface).toBeLessThanOrEqual(10_000)
+    expect(text.startsWith('## Long\n\n'), surface).toBe(true)
+    expect(text.endsWith('… (cut at 10,000 characters)'), surface).toBe(true)
+    await ui.unmount()
+  }
 })
 
 test('after the call, the Session tab shows its cost under the scope recommend, on both surfaces', async ($, on) => {

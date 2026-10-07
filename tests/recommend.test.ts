@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { dayTime, limitItems } from '../hooks/format'
 import { priceInfo } from '../hooks/prices'
-import { DEFAULT_MODEL, OUTPUT_CAP, RECOMMEND_SYSTEM, agoText, estimateTokens, failureText, maxCostOf, modelOption, priceModelOf, priceSourceOf, recommendPrompt, type RecommendInput } from '../hooks/recommend'
+import { DEFAULT_MODEL, OUTPUT_CAP, RECOMMEND_SYSTEM, agoText, drawableText, estimateTokens, failureText, maxCostOf, modelOption, priceModelOf, priceSourceOf, recommendPrompt, type RecommendInput } from '../hooks/recommend'
 import { NO_CAUSES, addCause, addTo, countsOf } from '../hooks/tally'
 import type { WeekData } from '../hooks/view'
 
@@ -132,7 +132,7 @@ test('the prompt holds the data of the tabs in fixed sections', async () => {
   // The limits in the order week, 5h, with the reset, the time of 100% at the current pace, and the age of an old reading
   const full100 = limitItems(full().limits, full().limitsAt, T0)[0].projection.replace(' → 100% ', '')
   expect(full100).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d\d:\d\d$/)
-  expect(prompt).toContain('- week 41% used, resets ' + dayTime(Date.parse(RESETS_AT)) + ', 100% at the current pace on ' + full100 + ' (3h ago)\n- 5h 12% used (3h ago)')
+  expect(prompt).toContain('- week 41% used, resets ' + dayTime(Date.parse(RESETS_AT)) + ', 100% at the current pace on ' + full100 + '\n- 5h 12% used\nLast reading: 3h ago.')
   expect(prompt).toContain('- fable-5-1 main: 1 request, input 6, cache write 12.0k, cache read 400k, output 1.4k, $3.00 (75%)')
   expect(prompt).toContain('- sonnet-5-5 Explore: 1 request, input 5, cache write 30.0k, cache read 20.0k, output 300, $1.00 (25%)')
   expect(prompt).toContain('Total: $4.00. /cost reports $5.50.')
@@ -171,4 +171,18 @@ test('a cost from a fallback price names the price that it uses, and a model wit
   const prompt = recommendPrompt({ ...EMPTY, totals })
   expect(prompt).toContain('opus-5-6 main: 1 request, input 6, cache write 12.0k, cache read 400k, output 1.4k, $2.00 (price of opus-5-5) (100%)')
   expect(prompt).toContain('mythos-1 main: 1 request, input 6, cache write 12.0k, cache read 400k, output 1.4k, no price (0%)')
+})
+
+test('a text for the dialog loses its control characters and is cut at 10000 characters with a note', async () => {
+  expect(drawableText('## One\r\n\nText\twith a tab.')).toBe('## One\n\nText\twith a tab.')
+  expect(drawableText('a\u0000b\u001bc\u007fd')).toBe('abcd')
+  const short = 'x'.repeat(10_000)
+  expect(drawableText(short)).toBe(short)
+  const long = drawableText('y'.repeat(12_000))
+  expect(long.length).toBeLessThanOrEqual(10_000)
+  expect(long.endsWith('\n\n… (cut at 10,000 characters)')).toBe(true)
+  // A character outside the basic plane stays whole at the cut
+  const emoji = drawableText('\u{1F600}'.repeat(6_000))
+  expect(emoji.length).toBeLessThanOrEqual(10_000)
+  expect(emoji.replace('\n\n… (cut at 10,000 characters)', '').length % 2).toBe(0)
 })
