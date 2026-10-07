@@ -155,6 +155,23 @@ async function sessionCost($: any): Promise<number | null> {
   }
 }
 
+// The type of a subagent comes from the agent list of the session, once for each agent
+async function agentTypeOf($: any, agentId: string): Promise<string> {
+  const known = (await read($, agents))[agentId]
+  if (known !== undefined) return known
+  let type: string | undefined
+  try {
+    const listed = (await $.agent.list()).find((a: { id: string; type: string }) => a.id === agentId)
+    type = listed?.type
+  } catch {
+    // The request still counts, under the scope subagent
+  }
+  if (type === undefined || type === '') return 'subagent'
+  const found = type
+  await update($, agents, (a) => ({ ...a, [agentId]: found }))
+  return found
+}
+
 // The state of the old conversation must not reach the new one
 async function resetConversation($: any): Promise<void> {
   await update($, totals, () => ({}))
@@ -231,16 +248,6 @@ export const register: Register = (on) => {
     return next(e)
   })
 
-  on('agent.spawn', async ($, e, next) => {
-    const result = await next(e)
-    if (result.agentId) {
-      const id = result.agentId
-      const type = e.subagentType
-      await update($, agents, (a) => ({ ...a, [id]: type }))
-    }
-    return result
-  }).catch(($, e, next) => next(e)) // Observation only; the spawn goes on
-
   // Observes each model request; the result goes back unchanged
   on('turn.step', async function* ($, e, next) {
     const agentId = e.agentId
@@ -257,7 +264,7 @@ export const register: Register = (on) => {
       if (usage) {
         const at: number = requestAt ?? (await $.clock.now())
         const isSubagent = agentId !== undefined
-        const scope = isSubagent ? ((await read($, agents))[agentId] ?? 'subagent') : 'main'
+        const scope = isSubagent ? await agentTypeOf($, agentId) : 'main'
         const thread = agentId ?? 'main'
         const cause = causeOf((await read($, threads))[thread], at, isSubagent ? SUB_TTL_MS : MAIN_TTL_MS)
         const counts = countsOf(usage, costOf(usage, isSubagent))

@@ -24,12 +24,13 @@ export type Harness = {
   registered: unknown[]
   // How often the mod listed the keys of the store
   keyCalls: { count: number }
+  // How often the mod read the agent list
+  agentListCalls: { count: number }
 }
 
 // Stubs for every mods API call and event the mod passes on, with a store in a Map
-// `sessionId` is read at each call, so a test can turn the failure on after the start.
-// `agentsState` is read once: with it, every write of the agents value is denied.
-export type Failures = { sessionId?: boolean; agentsState?: boolean }
+// Each failure is read at each call, so a test can turn it on after the start
+export type Failures = { sessionId?: boolean; agentList?: boolean }
 
 export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures } = {}): Harness {
   const store = new Map<string, unknown>(Object.entries(options.store ?? {}))
@@ -53,9 +54,6 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
     return { value: undefined }
   })
   on('session.id', () => (options.fail?.sessionId ? { deny: 'no session id' } : { value: 'sess-1' }))
-  if (options.fail?.agentsState) {
-    on('state.set', { plugin: 'token-watch', key: 'agents' }, () => ({ deny: 'state full' }))
-  }
   on('session.model', () => ({ value: options.sessionModel ?? '' }))
   on('session.root', () => ({ value: '/Users/me/repos/webshop/.worktrees/fix-1-x' }))
   on('session.usage', (_$: unknown, e: { breakdown?: string } | undefined) => ({
@@ -86,12 +84,22 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
   on('turn.complete', () => ({ text: '' }))
   on('classic.SessionStart', () => ({}))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['drawn by Claude Code'] }))
-  on('agent.spawn', (_$: unknown, e: { subagentType: string }) => ({ model: 'claude-sonnet-5-5', agentId: 'agent-' + e.subagentType }))
+  // The agent list holds every agent that a test spawned
+  const spawned: { id: string; type: string }[] = []
+  on('agent.spawn', (_$: unknown, e: { subagentType: string }) => {
+    spawned.push({ id: 'agent-' + e.subagentType, type: e.subagentType })
+    return { model: 'claude-sonnet-5-5', agentId: 'agent-' + e.subagentType }
+  })
+  const agentListCalls = { count: 0 }
+  on('agent.list', () => {
+    agentListCalls.count += 1
+    return options.fail?.agentList ? { deny: 'no agent list' } : { value: spawned.map((a) => ({ ...a, description: 'd', status: 'running' })) }
+  })
   on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
     yield { kind: 'text', index: 0, text: 'ok' }
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: nextUsage }
   })
-  return { store, clock, opened, registered, keyCalls }
+  return { store, clock, opened, registered, keyCalls, agentListCalls }
 }
 
 export async function start($: any) {
