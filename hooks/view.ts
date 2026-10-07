@@ -265,7 +265,7 @@ export function bandEls(E: Els, d: BandData, surface: string = 'terminal', avail
   }
   const shown = new Set<BandPart>(BAND_DROP.filter((part) => present[part]))
   let segments = bandSegments(d, shown)
-  // Leave out parts from the right until the band fits. The tube, the stage word and the label stay, and so does the last text of a band without a tube
+  // Leave out parts in the drop order until the band fits. The tube, the stage word and the label stay, and so does the last text of a band without a tube
   for (const part of BAND_DROP) {
     if (widthOf(segments) <= budget) break
     if (!shown.has(part)) continue

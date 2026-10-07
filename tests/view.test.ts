@@ -360,7 +360,7 @@ test('the band takes the pace up to the time of the reading, shows its age, and 
     // The age leaves before the projections
     expect(afterTube(bandEls(E, projectedCase(T0, T0 + 70 * MIN), surface, 100), surface)).toBe(LIVE_TEXT + ' | ' + both)
   }
-  // Without the time of a reading there is no projection
+  // With the time of a reading both limits have a projection, without it neither has one
   expect(projectedCase(T0, T0).limits.map((l) => l.projection)).toEqual([WEEK_FULL, FIVE_FULL])
   expect(bandData(NO_MAIN, {}, PROJECTED_LIMITS, null, T0)!.limits.map((l) => l.projection)).toEqual(['', ''])
 })
