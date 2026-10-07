@@ -45,7 +45,7 @@ Every money amount has two decimals and, from `$1,000.00`, a comma as thousands 
 - The call goes through the API client and the credentials of the Claude Code session (`$.model.complete`): one completion with no history and no tools, at effort `medium`, with a time limit of 2 minutes.
 - The reply shows in the dialog as Markdown. The mod does not write it into the conversation, so the model of the session does not read it.
 - The mod counts the tokens of the call under the scope `recommend`, so the Session and Week tabs show its cost. The call does not return the model id, so an alias counts as its family: `sonnet ≈`, at the price of the newest Sonnet in the price table.
-- The model is the option `recommendModel`, a picker over the aliases `sonnet`, `opus` and `haiku` in `/config` (row `Model of /token-watch recommend`). Each alias resolves like `--model` to the newest model of its family. The default is `sonnet`. A comparison of Sonnet 5.5 and Opus 5.5 is in the design doc.
+- The model is the option `recommendModel` in `/config` (row `Model of /token-watch recommend`): `sonnet`, `opus` or `haiku`, or a full model id. An alias resolves like `--model` to the newest model of its family. The default is `sonnet`. A model that Claude Code does not accept shows `The request was not sent` in the dialog, and no call runs. A comparison of Sonnet 5.5 and Opus 5.5 is in the design doc.
 
 ### Data
 
