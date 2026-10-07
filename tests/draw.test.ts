@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { dayTime } from '../hooks/format'
 import { heat, heatText } from '../hooks/temperature'
+import { bandCells } from '../hooks/view'
 import { FABLE, MIN, RESETS_AT, SONNET, T0, complete, harness, start, step } from './helpers'
 import { HELP_SECTIONS } from './help-text'
 
@@ -106,11 +107,12 @@ const OPUS = { model: 'claude-opus-5-5', input_tokens: 3, output_tokens: 1100, c
 // The mounted band, with the given number of cells across it
 const bandAt = (columns: number, surface: 'terminal' | 'desktop') => ({ ...BAND, viewport: { columns, rows: 40 }, props: { ...BAND.props, bodyColumns: columns }, surface })
 
-// The line of the band and its cells: the text, the 10 tube cells on the desktop (the Svg), and the frame and tube cells that the text holds on the terminal
+// The line of the band and its cells. On the terminal the text holds the frame and the tube cells, one cell for each character.
+// On the desktop the tube is the Svg, and the text has the widths of the proportional font
 async function bandLine(ui: any, surface: string): Promise<{ text: string; cells: number }> {
   const line = (await ui.findAll({ type: 'Text' })).find((t: any) => t.props.wrap === 'truncate-end')
   const text = textOf(line)
-  return { text, cells: Array.from(text).length + (surface === 'desktop' ? 10 : 0) }
+  return { text, cells: surface === 'desktop' ? bandCells(text, true, true) : Array.from(text).length }
 }
 
 test('the band keeps one line at a narrow and at a wide width with three models, on both surfaces', async ($, on) => {
@@ -130,13 +132,13 @@ test('the band keeps one line at a narrow and at a wide width with three models,
       // Only the model with the highest cost, then the count of the others
       expect(text.includes('fable-5-1 r'), where).toBe(false)
       expect(text.includes('sonnet-5-5 r'), where).toBe(false)
-      // The tube and the label take 40 cells on the terminal and 38 on the desktop. The weekly projection adds 17 to the 20 of the limits,
-      // and it stays longer than the model (30) and the count of the others (10)
-      const isTerminal = surface === 'terminal'
-      expect(text.includes('week 41%'), where).toBe(columns >= 80)
-      expect(text.includes(LIMITS_TEXT), where).toBe(columns >= (isTerminal ? 100 : 80))
-      expect(text.includes('opus-5-5 r289k w43.1k o1.1k'), where).toBe(columns >= 120)
-      expect(text.endsWith(' +2 models'), where).toBe(columns >= (isTerminal ? 160 : 120))
+      // On the terminal the tube and the label take 40 cells, the limits 20, the weekly projection 17, the model 30 and the count of the others 10.
+      // On the desktop the same parts take 33.44, 16.03, 13.26, 22.93 and 8.59 cells. The weekly projection stays longer than the model
+      const from = surface === 'terminal' ? { limits: 80, projection: 100, model: 120, more: 160 } : { limits: 60, projection: 80, model: 100, more: 100 }
+      expect(text.includes('week 41%'), where).toBe(columns >= from.limits)
+      expect(text.includes(LIMITS_TEXT), where).toBe(columns >= from.projection)
+      expect(text.includes('opus-5-5 r289k w43.1k o1.1k'), where).toBe(columns >= from.model)
+      expect(text.endsWith(' +2 models'), where).toBe(columns >= from.more)
       await ui.unmount()
     }
   }
@@ -159,15 +161,24 @@ test('the band shows when both limits reach 100%, drops the 5-hour projection fi
   const both = 'week 41%' + WEEK_FULL + ' · 5h 62%' + fiveFull
   const weekOnly = 'week 41%' + WEEK_FULL + ' · 5h 62%'
   const model = 'fable-5-1 r400k w10.0k o1.0k'
-  // With the HOT label, both projections take 112 cells on the terminal and 110 on the desktop, and the model 31 more
-  const cases: [number, string][] = [
-    [160, '| ' + both + ' | ' + model],
-    [120, '| ' + both],
-    [100, '| ' + weekOnly],
-    [90, '| week 41% · 5h 62%'],
-  ]
+  // With the HOT label, both projections take 112 cells on the terminal and the model 31 more.
+  // On the desktop they take 91.48 cells and the model 23.40 more, so the same parts stay at smaller widths
+  const cases: Record<string, [number, string][]> = {
+    terminal: [
+      [160, '| ' + both + ' | ' + model],
+      [120, '| ' + both],
+      [100, '| ' + weekOnly],
+      [90, '| week 41% · 5h 62%'],
+    ],
+    desktop: [
+      [160, '| ' + both + ' | ' + model],
+      [100, '| ' + both],
+      [90, '| ' + weekOnly],
+      [70, '| week 41% · 5h 62%'],
+    ],
+  }
   for (const surface of SURFACES) {
-    for (const [columns, end] of cases) {
+    for (const [columns, end] of cases[surface]) {
       const ui = await $.ui.mount(bandAt(columns, surface))
       const { text, cells } = await bandLine(ui, surface)
       expect(text.endsWith(end), surface + ' at ' + columns + ': ' + text).toBe(true)

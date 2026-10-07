@@ -15,7 +15,7 @@ The mod only observes. It does not change, block or delay a request, a tool call
 - When a limit reaches 100% before its reset at the pace so far, the day and the time of 100% follow its percent: `week 49% → 100% Sat 21:06 · 5h 62% → 100% Wed 15:31`. The pace runs from the start of the window of the limit up to the reading. The 5-hour window starts 5 hours before its reset, the weekly window 7 days before. A time that has passed does not show.
 - The cache read, cache write and output tokens of this conversation for the model with the highest cost. A dimmed `+1 model` or `+N models` names the other models.
 
-The band stays on one line. It takes the width that Claude Code gives it, keeps 4 cells free, and leaves out parts when it is too wide, in this order: the count of the other models, the model, the age of the limits, the 5-hour projection, the weekly projection, the limits. The tube, the stage and its label always stay.
+The band stays on one line. It takes the width that Claude Code gives it, keeps 4 cells free, and leaves out parts when it is too wide. In the desktop app it counts each character of the text by its width in the font of the app, because the app gives the width in cells of its code font but draws the band in a proportional font. The order: the count of the other models, the model, the age of the limits, the 5-hour projection, the weekly projection, the limits. The tube, the stage and its label always stay.
 
 In the terminal, the tube is drawn with block characters. In the desktop app, the tube is an SVG, because the desktop app uses a proportional font. The bars of the pane follow the same rule: block characters in the terminal, SVG in the desktop app.
 

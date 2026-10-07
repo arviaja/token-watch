@@ -50,6 +50,38 @@ export function repoName(root: string): string {
   return name === '' ? 'unknown' : name
 }
 
+// The desktop app counts the room of a tree in cells of its code font, but it draws Text in its proportional font, Anthropic Sans.
+// These are the widths of the printable ASCII characters in that font, in hundredths of a code-font cell, from code 32 (space) to 126 (~):
+// the advance of Text Regular (of Bold for a capital, which the stage words use) times 1.62 cells per em, rounded up.
+// The 1.62 comes from a screenshot of the desktop app: a column of 63 cells in the Week tab, and the band text drawn beside it
+const DESKTOP_ASCII = [
+  // space ! " # $ % & ' ( ) * + , - . /
+  35, 39, 67, 104, 85, 161, 111, 39, 66, 66, 80, 104, 39, 59, 39, 55,
+  // 0 1 2 3 4 5 6 7 8 9 : ; < = > ?
+  98, 61, 95, 91, 100, 92, 93, 87, 91, 93, 39, 39, 104, 104, 104, 89,
+  // @ A to O
+  142, 125, 109, 126, 124, 106, 99, 131, 123, 48, 94, 120, 96, 153, 129, 133,
+  // P to Z [ \ ] ^ _
+  104, 133, 114, 103, 96, 119, 125, 172, 120, 117, 110, 66, 55, 66, 104, 82,
+  // ` a to o
+  82, 89, 101, 90, 101, 94, 68, 93, 97, 41, 42, 92, 41, 142, 97, 95,
+  // p to z { | } ~
+  101, 101, 66, 84, 68, 96, 92, 134, 93, 93, 82, 66, 50, 66, 104,
+]
+const DESKTOP_OTHER: Record<string, number> = { '·': 39, '→': 133, '≈': 104, '…': 163 }
+// A character outside both tables counts as 2.2 cells: wider than W (1.72) and than a full-width glyph (1 em, 1.62), and as wide as an emoji of 1.35 em
+const DESKTOP_WIDEST = 220
+
+// The width of a text on the desktop, in cells of its code font
+export function desktopCells(text: string): number {
+  let sum = 0
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0
+    sum += (code >= 32 && code <= 126 ? DESKTOP_ASCII[code - 32] : DESKTOP_OTHER[ch]) ?? DESKTOP_WIDEST
+  }
+  return sum / 100
+}
+
 // Pads a text to the column width; a cut text ends in an ellipsis, and one space always stays free
 export function cell(text: string, column: Column): string {
   let chars = Array.from(text)
