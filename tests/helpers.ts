@@ -27,7 +27,10 @@ export type Harness = {
 }
 
 // Stubs for every mods API call and event the mod passes on, with a store in a Map
-export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string } = {}): Harness {
+// `fail` is read at each call, so a test can turn a failure on after the start
+export type Failures = { sessionId?: boolean; agentsState?: boolean }
+
+export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures } = {}): Harness {
   const store = new Map<string, unknown>(Object.entries(options.store ?? {}))
   const opened: unknown[] = []
   const registered: unknown[] = []
@@ -48,7 +51,10 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
     store.delete(e.key)
     return { value: undefined }
   })
-  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.id', () => (options.fail?.sessionId ? { deny: 'no session id' } : { value: 'sess-1' }))
+  if (options.fail) {
+    on('state.set', { plugin: 'token-watch', key: 'agents' }, (_$: unknown, e: unknown, next: (e: unknown) => unknown) => (options.fail?.agentsState ? { deny: 'state full' } : next(e)))
+  }
   on('session.model', () => ({ value: options.sessionModel ?? '' }))
   on('session.root', () => ({ value: '/Users/me/repos/webshop/.worktrees/fix-1-x' }))
   on('session.usage', (_$: unknown, e: { breakdown?: string } | undefined) => ({

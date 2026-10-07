@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { costOf } from '../hooks/prices'
-import { FABLE, MIN, RESETS_AT, SONNET, T0, complete, end, harness, snapshotIn, spawn, start, step } from './helpers'
+import { FABLE, MIN, RESETS_AT, SONNET, T0, complete, end, harness, snapshotIn, spawn, start, step, type Failures } from './helpers'
 
 const OLD = { v: 1, key: 'run:old:1', sessionId: 'old', repo: 'x', model: 'm', updatedAt: T0 - 9 * 24 * 60 * MIN, lastMainRequestAt: null, contextTokens: 0, isWorking: false, readings: [], hours: {} }
 const RECENT = { ...OLD, key: 'run:recent:1', sessionId: 'recent', updatedAt: T0 - 24 * 60 * MIN }
@@ -152,6 +152,28 @@ test('a new conversation after /clear writes a new key', async ($, on) => {
   const second = h.store.get('run:sess-1:' + (T0 + 5 * MIN)) as any
   expect(second.hours['2026-10-06T12']['claude-fable-5-1|main'].requests).toBe(1)
   expect(second.readings.map((r: any) => r.kind + ' ' + r.percentUsed)).toEqual(['seven_day 41'])
+})
+
+test('a failure in the /clear hook does not stop the session start, and the next request still counts', async ($, on) => {
+  const fail: Failures = {}
+  const h = harness(on, { fail })
+  await start($)
+  fail.sessionId = true
+  await expect($.classic.SessionStart({ source: 'clear' })).resolves.toBeDefined()
+  fail.sessionId = false
+  await step($, FABLE)
+  await end($)
+  const snapshot = snapshotIn(h.store)
+  expect(snapshot.hours['2026-10-06T12']['claude-fable-5-1|main'].requests).toBe(1)
+})
+
+test('a failed record of the subagent type keeps the spawn result unchanged', async ($, on) => {
+  const fail: Failures = { agentsState: true }
+  harness(on, { fail })
+  await start($)
+  const spawned = await spawn($, 'Explore')
+  expect(spawned.agentId).toBe('agent-Explore')
+  expect(spawned.model).toBe('claude-sonnet-5-5')
 })
 
 const PANE = {
