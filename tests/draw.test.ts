@@ -2,7 +2,9 @@ import { expect, test } from 'claude-code/testing'
 import { dayTime } from '../hooks/format'
 import { heat, heatText } from '../hooks/temperature'
 import { bandCells } from '../hooks/view'
-import { FABLE, MIN, RESETS_AT, SONNET, T0, complete, harness, start, step } from './helpers'
+import { formatTokens } from '../hooks/format'
+import { RECOMMEND_SYSTEM, estimateTokens } from '../hooks/recommend'
+import { FABLE, MIN, REPLY, RESETS_AT, SONNET, T0, complete, harness, start, step } from './helpers'
 import { HELP_SECTIONS } from './help-text'
 
 const BAND = {
@@ -844,4 +846,168 @@ test('the help tab needs no request and no store data, and keeps its text when a
   expect(await textsOf(ui)).toEqual(before)
   expect(h.keyCalls.count).toBe(reads)
   await ui.unmount()
+})
+
+// The dialog of /token-watch recommend, at the 80 columns that the mod asks for
+const RECOMMEND = (surface: 'terminal' | 'desktop', columns = 80) => ({
+  plugin: 'token-watch',
+  component: 'Pane',
+  requestId: 'token-watch-recommend',
+  surface,
+  viewport: { columns: 200, rows: 50 },
+  props: { title: 'token-watch recommend', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+})
+const ESTIMATE = /^≈ [0-9.]+k? tokens, estimated from the length of the prompt$/
+const USAGE_LINE = 'sonnet · input 2.4k · output 800 · ≈ $0.01 at API prices · counted in the Session tab under the scope recommend'
+
+test('/token-watch recommend opens the cost dialog on both surfaces, and no model call runs before the confirmation', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  await complete($)
+  expect(await $.command.run({ command: 'token-watch', args: 'recommend' })).toEqual({})
+  // A dialog: it takes the keys, Esc closes it, and the toasts wait
+  expect(h.opened.at(-1)).toEqual({ id: 'token-watch-recommend', title: 'token-watch recommend', focus: true, closeOnEscape: true, holdToasts: true, columns: 80, rows: 18 })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount(RECOMMEND(surface))
+    expect(await ui.find({ type: 'Text', text: 'Ask sonnet for recommendations on this usage?' }), surface).toBeDefined()
+    for (const label of ['model', 'input', 'output', 'highest cost', 'plan']) expect(await ui.find({ type: 'Text', text: label }), surface + ' ' + label).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ESTIMATE }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'up to 4.0k tokens' }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^≈ \$0\.0[0-9]$/ }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ' at API prices of sonnet-5-5, with the full output cap' }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'On a subscription the call counts against the plan allowance.' }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^The prompt holds the data of the Session, Week and Why tabs/ }), surface).toBeDefined()
+    expect((await ui.find({ type: 'Button', key: 'recommend-ask' }))?.props, surface).toMatchObject({ label: 'Ask sonnet', hotkey: 'a', variant: 'primary' })
+    expect((await ui.find({ type: 'Button', key: 'recommend-cancel' }))?.props, surface).toMatchObject({ label: 'Cancel', hotkey: 'c' })
+    expect(await ui.find({ type: 'Text', text: 'drawn by Claude Code' }), surface).toBeUndefined()
+    await ui.unmount()
+  }
+  expect(h.modelCalls).toHaveLength(0)
+})
+
+test('the dialog rows keep the label column and wrap the value in the room that is left, at 80 and at 45 columns', async ($, on) => {
+  harness(on)
+  await start($)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  for (const surface of SURFACES) {
+    for (const columns of [80, 45]) {
+      const ui = await $.ui.mount(RECOMMEND(surface, columns))
+      const tree: any = await ui.drawn()
+      const rows = tree.children.filter((c: any) => c.type === 'Box' && c.props.flexDirection === 'row' && c.children.length === 2 && c.children[0].props.width === 15)
+      expect(rows, surface + ' ' + columns).toHaveLength(5)
+      for (const row of rows) {
+        expect(row.children[0].props.flexShrink).toBe(0)
+        expect(row.children[1].props).toMatchObject({ flexShrink: 1, width: columns - 15 })
+        expect(row.children[1].children[0].props.wrap).toBe('wrap')
+      }
+      await ui.unmount()
+    }
+  }
+})
+
+test('Ask runs one model call with the prompt and shows the reply as Markdown with its cost, on both surfaces', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  await complete($)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  let ui = await $.ui.mount(RECOMMEND('terminal'))
+  const estimate = textOf(await ui.find({ type: 'Text', text: ESTIMATE }))
+  await ui.press({ key: 'recommend-ask' })
+  expect(h.modelCalls).toHaveLength(1)
+  const request = h.modelCalls[0]
+  expect(request).toMatchObject({ model: 'sonnet', system: RECOMMEND_SYSTEM, maxTokens: 4000, effort: 'medium', timeoutMs: 120_000 })
+  expect(request.prompt).toContain('## This conversation, by model and scope\n- fable-5-1 main: 1 request')
+  // The dialog showed the estimate of this prompt
+  expect(estimate).toBe('≈ ' + formatTokens(estimateTokens(RECOMMEND_SYSTEM + request.prompt)) + ' tokens, estimated from the length of the prompt')
+  // The pane stays open for the reply: it asks for more rows and no longer holds the toasts
+  expect(h.opened.at(-1)).toEqual({ id: 'token-watch-recommend', title: 'token-watch recommend', closeOnEscape: true, columns: 80, rows: 24 })
+  await ui.unmount()
+  for (const surface of SURFACES) {
+    ui = await $.ui.mount(RECOMMEND(surface))
+    expect((await ui.find({ type: 'Markdown' }))?.props.text, surface).toBe(REPLY.text)
+    expect(await ui.find({ type: 'Text', text: USAGE_LINE }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'recommend-ask' }), surface).toBeUndefined()
+    await ui.unmount()
+  }
+  // A second press of a stale Ask runs no second call
+  expect(h.modelCalls).toHaveLength(1)
+})
+
+test('after the call, the Session tab shows its cost under the scope recommend, on both surfaces', async ($, on) => {
+  harness(on)
+  await start($)
+  await step($, FABLE)
+  await complete($)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  const dialog = await $.ui.mount(RECOMMEND('terminal'))
+  await dialog.press({ key: 'recommend-ask' })
+  await dialog.unmount()
+  await $.command.run({ command: 'token-watch', args: '' })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'tab-2' })
+    // The alias is priced as the newest Sonnet of the table, so the name has the mark of an estimate
+    expect(await ui.find({ type: 'Text', text: /^sonnet ≈\s*$/ }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^recommend\s+$/ }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\s+\$0\.01$/ }), surface).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('Cancel closes the dialog without a model call, on both surfaces', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  for (const surface of SURFACES) {
+    await $.command.run({ command: 'token-watch', args: 'recommend' })
+    const ui = await $.ui.mount(RECOMMEND(surface))
+    await ui.press({ key: 'recommend-cancel' })
+    expect(h.closed.at(-1), surface).toMatchObject({ id: 'token-watch-recommend' })
+    expect(await ui.find({ type: 'Button', key: 'recommend-ask' }), surface).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Run /token-watch recommend to ask for recommendations.' }), surface).toBeDefined()
+    await ui.unmount()
+  }
+  // Esc closes the pane as the close mark does: the open asks for it, and the ui.close hook of the mod ends the dialog.
+  // The test engine raises no ui.close of the person, so this test covers the button
+  expect(h.opened.every((o: any) => o.closeOnEscape === true)).toBe(true)
+  expect(h.modelCalls).toHaveLength(0)
+})
+
+test('a call without a reply shows the reason on both surfaces', async ($, on) => {
+  harness(on, { modelResult: { value: { isAnswered: false, reason: 'api-error', status: 429, error: 'rate_limit', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } } })
+  await start($)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  let ui = await $.ui.mount(RECOMMEND('terminal'))
+  await ui.press({ key: 'recommend-ask' })
+  await ui.unmount()
+  for (const surface of SURFACES) {
+    ui = await $.ui.mount(RECOMMEND(surface))
+    expect(await ui.find({ type: 'Text', text: 'No recommendations' }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'The API answered with an error: rate_limit (HTTP 429).' }), surface).toBeDefined()
+    // A call that used no tokens has no usage line
+    expect(await ui.find({ type: 'Text', text: /counted in the Session tab/ }), surface).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
+test('a request that the engine refuses to send shows why', async ($, on) => {
+  harness(on, { modelResult: { deny: 'model not allowed' } })
+  await start($)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  const ui = await $.ui.mount(RECOMMEND('terminal'))
+  await ui.press({ key: 'recommend-ask' })
+  expect(textOf(await ui.find({ type: 'Text', text: /^The request was not sent: / }))).toContain('model not allowed')
+})
+
+test('the option recommendModel sets the model of the dialog and of the call', { options: { recommendModel: 'opus' } }, async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await $.command.run({ command: 'token-watch', args: 'recommend' })
+  const ui = await $.ui.mount(RECOMMEND('desktop'))
+  expect(await ui.find({ type: 'Text', text: 'Ask opus for recommendations on this usage?' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' at API prices of opus-5-5, with the full output cap' })).toBeDefined()
+  expect((await ui.find({ type: 'Button', key: 'recommend-ask' }))?.props.label).toBe('Ask opus')
+  await ui.press({ key: 'recommend-ask' })
+  expect(h.modelCalls[0].model).toBe('opus')
 })

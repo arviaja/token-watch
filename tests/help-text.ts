@@ -30,7 +30,7 @@ export const HELP_SECTIONS: { title: string; rows: [string, string][] }[] = [
   {
     title: '2 Session',
     rows: [
-      ['scope', 'main, or the type of a subagent.'],
+      ['scope', 'main, the type of a subagent, or recommend: the call of /token-watch recommend.'],
       ['req, input', 'Requests, and input tokens outside the cache.'],
       ['c.write, c.read', 'Tokens written to and read from the cache.'],
       ['estimate', 'Total at API prices, from the requests this mod saw.'],
@@ -63,6 +63,13 @@ export const HELP_SECTIONS: { title: string; rows: [string, string][] }[] = [
       ['every cost', 'An estimate at API list prices. A plan does not bill them. They show where the tokens go.'],
       ['opus-5-6 ≈', 'No exact price yet: priced as the newest model of its family. make prices lists these models.'],
       ['unpriced', 'The model has no price in the table of the mod.'],
+    ],
+  },
+  {
+    title: '/token-watch',
+    rows: [
+      ['no argument', 'Opens this pane.'],
+      ['recommend', 'Asks a model for advice on this usage. A dialog shows the cost first, and the call runs only when you press Ask. On a subscription it counts against the plan allowance.'],
     ],
   },
 ]

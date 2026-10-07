@@ -2,7 +2,7 @@
 
 Instructions for people and coding agents that work on this repo.
 
-`token-watch` is a Claude Code mod: a plugin with one hooks module of TypeScript function hooks, which Claude Code loads in its own process. It installs no hooks in `settings.json`. It shows the token use, the plan limits and the cache temperature of the sessions on this Mac. The mod only observes. No hook blocks, changes or delays a request, a tool call or a prompt, and no hook calls a model. It draws a band above the prompt and a pane with five tabs (Now, Session, Week, Why, Help) that the command `/token-watch` opens. It runs in the Claude Code CLI and in the Code tab of the desktop app.
+`token-watch` is a Claude Code mod: a plugin with one hooks module of TypeScript function hooks, which Claude Code loads in its own process. It installs no hooks in `settings.json`. It shows the token use, the plan limits and the cache temperature of the sessions on this Mac. The mod only observes. No hook blocks, changes or delays a request, a tool call or a prompt. The mod calls a model only for `/token-watch recommend`, after the person confirms the cost in a dialog, and it sends only the usage data that the tabs show. It draws a band above the prompt, a pane with five tabs (Now, Session, Week, Why, Help) that the command `/token-watch` opens, and the dialog of `/token-watch recommend`. It runs in the Claude Code CLI and in the Code tab of the desktop app.
 
 ## This repo is public
 
@@ -19,8 +19,9 @@ Everything in this repo is public: files, commit messages, branch names, tags, i
 
 - `.claude-plugin/plugin.json`: the manifest. Its `types` field names the type contract.
 - `hooks/hooks.json`: names the one hooks module, `register.ts`.
-- `hooks/register.ts`: registers the hooks, the timers and the command. It holds the `$.state` values and writes the snapshots to the shared store. It is the only file that uses `$`.
-- `hooks/view.ts`: the element trees of the band and the five tabs. It is pure: the caller passes the element table.
+- `hooks/register.ts`: registers the hooks, the timers and the command. It holds the `$.state` values, writes the snapshots to the shared store, and makes the model call of `/token-watch recommend`. It is the only file that uses `$`. `register(on, options)` reads the `userConfig` option `recommendModel`.
+- `hooks/view.ts`: the element trees of the band, the five tabs and the dialog of `/token-watch recommend`. It is pure: the caller passes the element table.
+- `hooks/recommend.ts`: pure functions of `/token-watch recommend`: the system prompt, the prompt from the data of the tabs, the input estimate, the highest cost, the price model of an alias and the text of a failed call.
 - `hooks/tally.ts`: pure functions for counts, causes of cache writes, snapshots, and the rows of the Now and Week tabs.
 - `hooks/temperature.ts`: cache lifetime, stages, heat colours, and the cells and SVG markup of the tube, the bars, the strip and the week history.
 - `hooks/format.ts`: text formats (tokens, money, percent), table cells and column fitting.
@@ -30,9 +31,9 @@ Everything in this repo is public: files, commit messages, branch names, tags, i
 
 Tests are in `tests/` and run with `claude plugin test`:
 
-- `format`, `prices`, `tally`, `temperature` and `view` each have one test file for the module of the same name. `view.test.ts` uses a stub element table.
+- `format`, `prices`, `recommend`, `tally`, `temperature` and `view` each have one test file for the module of the same name. `view.test.ts` uses a stub element table.
 - `hooks.test.ts` and `draw.test.ts` run `register.ts` in the test engine. `hooks.test.ts` covers state, store, timers and hook results. `draw.test.ts` mounts the band and the pane on the terminal and on the desktop.
-- `helpers.ts` stubs each mods API call and keeps the store in a Map.
+- `helpers.ts` stubs each mods API call and keeps the store in a Map. It stubs `$.model.complete`, so no test makes a real model call. A test sets the result of the stub with the option `modelResult`.
 
 ## Commands
 
@@ -57,6 +58,9 @@ Tests are in `tests/` and run with `claude plugin test`:
 - The desktop app draws bars as SVG, because its font is proportional. The terminal draws them as text cells. No `Text` holds a bar character on the desktop.
 - When the pane is narrower than a table, the table drops columns in a fixed order. The order is in `hooks/view.ts`, in the `*_DROP` lists.
 - The pane takes its width from `e.props.bodyColumns`, not from the viewport.
+- `$.model.complete` returns the token counts of the call, but not the model that answered. The mod prices an alias as its family (`sonnet` as `claude-sonnet`, see `priceModelOf`).
+- The `$.ui.close` of the mod does not run the `ui.close` hook of the mod. A handler that closes a pane does the work of the hook itself (`endRecommend`).
+- The test engine cannot raise the `ui.close` of the person (Esc or the close mark). The tests cover the Cancel button, and the open arguments show `closeOnEscape`.
 
 ## Standards
 

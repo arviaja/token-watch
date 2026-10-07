@@ -19,5 +19,13 @@
   "documentationUrl": "https://github.com/arviaja/token-watch#readme",
   "supportUrl": "https://github.com/arviaja/token-watch/issues",
   "privacyPolicyUrl": "https://github.com/arviaja/token-watch/blob/main/PRIVACY.md",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "recommendModel": {
+      "type": "string",
+      "title": "Model of /token-watch recommend",
+      "description": "An alias (sonnet, opus, haiku) or a full model id. It resolves like --model.",
+      "default": "sonnet"
+    }
+  }
 }

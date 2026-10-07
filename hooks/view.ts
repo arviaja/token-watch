@@ -1,12 +1,13 @@
-import type { Breakdown, Cause, Causes, Counts, Limit, Main, Resume, Snapshot, Totals } from '../types'
+import type { Breakdown, Cause, Causes, Counts, Limit, Main, Recommend, Resume, Snapshot, Totals } from '../types'
 import { cell, dayTime, desktopCells, fitColumns, formatMoney, formatPercent, formatTokens, historyCells, limitItems, limitsAgeText, markedCell, modelsText, placeMarks, projectionText, shortModel, tubeLabel, weekDayNames, type Column, type HistoryCell, type LimitItem, type PlacedMarks, type ResumeMark } from './format'
 import { priceInfo, rewarmCost } from './prices'
+import { RECOMMEND_SCOPE, priceSourceOf } from './recommend'
 import { barSvg, fraction, heat, heatText, minutesLeft, sparkSvg, stageOf, stripCellAt, stripCells, stripSvg, tubeAlt, tubeCells, type Cell, type Stage, type StripCell } from './temperature'
 import { STRIP_MS, groupWeek, mergeReadings, modelSums, weekOf, type NowRow, type Row, type Share } from './tally'
 
 type El = (props: Record<string, any>) => unknown
-// Svg exists only in the element table of the remote surfaces
-export type Els = { Box: El; Text: El; Button: El; Svg?: El }
+// Svg exists only in the element table of the remote surfaces. Markdown is in every table; the tests of the tabs leave it out
+export type Els = { Box: El; Text: El; Button: El; Svg?: El; Markdown?: El }
 export type CellValue = string | unknown[]
 
 const L = (width: number): Column => ({ width, align: 'left' })
@@ -589,7 +590,7 @@ const HELP: HelpSection[] = [
   {
     title: '2 Session',
     entries: [
-      { term: 'scope', text: 'main, or the type of a subagent.' },
+      { term: 'scope', text: 'main, the type of a subagent, or recommend: the call of /token-watch recommend.' },
       { term: 'req, input', text: 'Requests, and input tokens outside the cache.' },
       { term: 'c.write, c.read', text: 'Tokens written to and read from the cache.' },
       { term: 'estimate', text: 'Total at API prices, from the requests this mod saw.' },
@@ -620,6 +621,13 @@ const HELP: HelpSection[] = [
       { term: 'every cost', text: 'An estimate at API list prices. A plan does not bill them. They show where the tokens go.' },
       { term: 'opus-5-6 ≈', text: 'No exact price yet: priced as the newest model of its family. make prices lists these models.' },
       { term: 'unpriced', text: 'The model has no price in the table of the mod.' },
+    ],
+  },
+  {
+    title: '/token-watch',
+    entries: [
+      { term: 'no argument', text: 'Opens this pane.' },
+      { term: 'recommend', text: 'Asks a model for advice on this usage. A dialog shows the cost first, and the call runs only when you press Ask. On a subscription it counts against the plan allowance.' },
     ],
   },
 ]
@@ -658,7 +666,7 @@ function helpRow(E: Els, entry: HelpEntry, room: number | undefined, surface: st
   })
 }
 
-// Tab 5: the sections with a bold heading each, a blank line between them
+// Tab 5: the sections with a bold heading each, a blank line between them. The last section names the forms of the command
 export function helpEls(E: Els, available?: number, surface: string = 'terminal'): unknown {
   const room = typeof available === 'number' && Number.isFinite(available) ? Math.max(HELP_MIN_TEXT, available - HELP_TERM_WIDTH) : undefined
   const lines = HELP.flatMap((section, i) => [...(i > 0 ? [text(E, ' ')] : []), text(E, section.title, { bold: true }), ...section.entries.map((entry) => helpRow(E, entry, room, surface))])
@@ -667,4 +675,68 @@ export function helpEls(E: Els, available?: number, surface: string = 'terminal'
 
 export function paneEls(E: Els, tabs: unknown, body: unknown): unknown {
   return E.Box({ flexDirection: 'column', children: [tabs, text(E, ' '), body] })
+}
+
+// The dialog of /token-watch recommend: the cost before the call, the wait, and the reply.
+// A row has a label column of fixed width and a value that wraps in the room that is left, as the rows of the help tab
+const RECOMMEND_LABEL_WIDTH = 15
+const RECOMMEND_MIN_TEXT = 20
+const RECOMMEND_DATA_NOTE = 'The prompt holds the data of the Session, Week and Why tabs: token counts, costs, plan limits, and the names of repos, memory files, MCP servers and agents. It holds no transcript text, no file content and no prompt text.'
+const RECOMMEND_PLAN_NOTE = 'On a subscription the call counts against the plan allowance.'
+
+export type RecommendActions = { onAsk: () => unknown; onCancel: () => unknown }
+
+function recommendRow(E: Els, label: string, value: unknown[], room: number | undefined): unknown {
+  return E.Box({
+    flexDirection: 'row',
+    children: [
+      E.Box({ width: RECOMMEND_LABEL_WIDTH, flexShrink: 0, children: [text(E, label, { dimColor: true })] }),
+      E.Box({ flexShrink: 1, ...(room === undefined ? {} : { width: room }), children: [E.Text({ wrap: 'wrap', children: value })] }),
+    ],
+  })
+}
+
+// The cost of the call: `$0.04 at API prices of sonnet-5-5`, with ≈ for an estimate. Null for a model without a price
+function recommendCostEls(E: Els, cost: number | null, priceModel: string, isEstimate: boolean): unknown[] {
+  const source = priceSourceOf(priceModel)
+  if (cost === null || source === undefined) return [text(E, 'unknown: the table of the mod has no price for this model')]
+  return [text(E, (isEstimate ? '≈ ' : '') + formatMoney(cost), { bold: true }), text(E, ' at API prices of ' + source + ', with the full output cap')]
+}
+
+// What the call used, under the reply: model, tokens, cost and where the tabs count it
+function recommendUsageEls(E: Els, r: Recommend): unknown[] {
+  if (r.counts === null) return []
+  const c = r.counts
+  const isEstimate = priceInfo(r.priceModel)?.source === 'fallback'
+  const cost = priceInfo(r.priceModel) === undefined ? 'no price' : (isEstimate ? '≈ ' : '') + formatMoney(c.cost)
+  const line = r.model + ' · input ' + formatTokens(c.input + c.cacheRead + c.cacheWrite) + ' · output ' + formatTokens(c.output) + ' · ' + cost + ' at API prices · counted in the Session tab under the scope ' + RECOMMEND_SCOPE
+  return [text(E, ' '), text(E, line, { dimColor: true, wrap: 'wrap' })]
+}
+
+export function recommendEls(E: Els, r: Recommend | null, actions: RecommendActions, available?: number): unknown {
+  if (r === null) return text(E, 'Run /token-watch recommend to ask for recommendations.', { dimColor: true })
+  const room = typeof available === 'number' && Number.isFinite(available) ? Math.max(RECOMMEND_MIN_TEXT, available - RECOMMEND_LABEL_WIDTH) : undefined
+  const cancel = E.Button({ key: 'recommend-cancel', label: 'Cancel', hotkey: 'c', onPress: actions.onCancel })
+  const column = (children: unknown[]) => E.Box({ flexDirection: 'column', children })
+  if (r.phase === 'confirm') {
+    return column([
+      text(E, 'Ask ' + r.model + ' for recommendations on this usage?', { bold: true }),
+      text(E, ' '),
+      recommendRow(E, 'model', [text(E, r.model)], room),
+      recommendRow(E, 'input', [text(E, '≈ ' + formatTokens(r.inputTokens) + ' tokens, estimated from the length of the prompt')], room),
+      recommendRow(E, 'output', [text(E, 'up to ' + formatTokens(r.outputCap) + ' tokens')], room),
+      recommendRow(E, 'highest cost', recommendCostEls(E, r.maxCost, r.priceModel, priceInfo(r.priceModel)?.source === 'fallback'), room),
+      recommendRow(E, 'plan', [text(E, RECOMMEND_PLAN_NOTE)], room),
+      text(E, ' '),
+      text(E, RECOMMEND_DATA_NOTE, { wrap: 'wrap' }),
+      text(E, ' '),
+      E.Box({ flexDirection: 'row', columnGap: 2, children: [E.Button({ key: 'recommend-ask', label: 'Ask ' + r.model, hotkey: 'a', variant: 'primary', onPress: actions.onAsk }), cancel] }),
+      text(E, 'a asks, c or Esc cancels. No call runs before you press Ask.', { dimColor: true }),
+    ])
+  }
+  if (r.phase === 'asking') {
+    return column([text(E, 'Asking ' + r.model + '…', { bold: true }), text(E, 'The reply shows here. The call stops after 2 minutes.', { dimColor: true, wrap: 'wrap' }), text(E, ' '), cancel])
+  }
+  if (r.phase === 'answered') return column([E.Markdown!({ text: r.text }), ...recommendUsageEls(E, r)])
+  return column([text(E, 'No recommendations', { bold: true }), text(E, r.text, { wrap: 'wrap' }), ...recommendUsageEls(E, r)])
 }

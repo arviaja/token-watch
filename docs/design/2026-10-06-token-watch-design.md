@@ -6,15 +6,15 @@ Date: 2026-10-06.
 
 `token-watch` is a Claude Code mod. It shows how the sessions on this Mac use tokens and the plan allowance, live. It shows the cache state of each session as a gradient tube. It runs in the Claude Code CLI and in the Code tab of the Claude desktop app, with the same band and the same pane on both.
 
-The mod only observes. It does not block, change or delay a request, a tool call or a prompt. It does not call a model and sends nothing to it. The only trace in the context is the short note that Claude Code records for each `/token-watch`, as for every slash command.
+The mod only observes. It does not block, change or delay a request, a tool call or a prompt. It calls a model only for `/token-watch recommend`, after the person confirms the cost in a dialog, and it sends only the usage data that the tabs show (see Recommendations). The only trace in the context is the short note that Claude Code records for each `/token-watch`, as for every slash command.
 
 ## Context
 
 Cache writes after a pause and large contexts drive most of the cost of a Claude Code session. A request that follows a pause longer than the cache lifetime writes the whole context to the cache again. A request with a large context costs more than a request with a small one.
 
-The goal of this mod is visibility. A decision about a change is out of scope.
+The goal of this mod is visibility. The mod makes no change itself. `/token-watch recommend` suggests changes, and the person decides.
 
-Mods are available from Claude Code 2.1.287. The mod was built and tested with 2.1.288. The type declarations that Claude Code writes for the installed version are the authority for event names, method names and props.
+Mods are available from Claude Code 2.1.287. The mod was built and tested with 2.1.288, and `/token-watch recommend` with 2.1.292. The type declarations that Claude Code writes for the installed version are the authority for event names, method names and props.
 
 ## Scope
 
@@ -27,12 +27,13 @@ In scope:
 - The context breakdown of the current session.
 - A machine-wide view of all sessions that run the mod.
 - The band above the prompt and the pane, in the CLI and in the desktop app.
+- One model call for `/token-watch recommend`, after the person confirms its cost.
 
 Out of scope:
 
 - Any change to a request, a tool call, a prompt or a setting.
-- A warning dialog, a block or a prompt to the user.
-- Calls to a model.
+- A warning dialog or a block. The only dialog is the one of `/token-watch recommend`, which the person opens.
+- A model call that the person did not confirm.
 - Sessions that do not run the mod: Codex, sessions before the installation, sessions with mods turned off.
 - A backfill from the transcript files.
 - Requests that do not pass through `turn.step` (for example compaction summaries). The totals can be lower than `/cost`.
@@ -49,6 +50,7 @@ Out of scope:
 | `turn.step` and `turn.complete` | `isWorking` is set by the first main `turn.step` of a turn and cleared by the main `turn.complete`, because `turn.start` does not tell main turns from subagent turns. A main event has no `e.agentId`. |
 | `classic.SessionStart` | The sources `clear`, `resume` and `fork` start a new conversation. For `resume` and `fork`, the event holds the time since the last response, the context tokens and, in most builds, the model of the resumed conversation. |
 | `$.store` | One JSON store that all sessions on the Mac share. |
+| `$.model.complete` (a call) | The one model call of `/token-watch recommend`, through the API client of the session. The result holds the reply and `usage` (the four token counts), but not the model that answered. |
 
 A check of one week of transcripts showed the cache lifetimes. 98.5% of the cache writes of main conversations use the 1-hour lifetime. 100% of the cache writes of subagents use the 5-minute lifetime. The usage that `turn.step` reports does not separate the two. The mod therefore uses these fixed values:
 
@@ -232,7 +234,7 @@ The band must stay on one line. The desktop app wraps a line that is wider than 
 
 ## Pane
 
-The command `/token-watch` opens the pane with a requested width of 80 columns and 24 rows. The pane is a sidebar on the right in a wide window and a region above the prompt in a narrow window. The keys `1` to `5` select a tab. Esc closes the pane.
+The command `/token-watch` opens the pane with a requested width of 80 columns and 24 rows. The pane is a sidebar on the right in a wide window and a region above the prompt in a narrow window. The keys `1` to `5` select a tab. Esc closes the pane. With the argument `recommend`, the command opens the dialog of Recommendations instead.
 
 ### Table layout
 
@@ -582,7 +584,7 @@ The text lives in `HELP` in `hooks/view.ts`. `tests/help-text.ts` holds a copy o
 
 Layout:
 
-- The tab has six sections: `Band above the prompt`, `1 Now`, `2 Session`, `3 Week`, `4 Why` and `Costs`. Each section starts with its heading in bold. A blank line separates two sections.
+- The tab has seven sections: `Band above the prompt`, `1 Now`, `2 Session`, `3 Week`, `4 Why`, `Costs` and `/token-watch`. Each section starts with its heading in bold. A blank line separates two sections. The section `/token-watch` names the two forms of the command: `no argument` and `recommend`. A term holds at most 21 cells, so the heading carries the command and the terms carry its forms.
 - A row has two columns. The term column is a `Box` with `width: 22` and `flexShrink: 0`. A term is at most 21 cells, so one cell stays free, as in a table. The explanation column is a `Box` with `flexShrink: 1`.
 - An explanation is one `Text` with `wrap: 'wrap'`. It is plain: no colour and no dimming. A line of the approved text that continues on the next line is joined into this one string.
 - The pane gives its width (`e.props.bodyColumns`) as `available`. The explanation column then gets `width: available - 22`, and at least 12. Without a width, the column only shrinks. A narrow pane wraps the explanation and cuts nothing. The tab drops no column.
@@ -602,6 +604,111 @@ Rule: a term has the spelling of the label that the band or a tab draws.
 - A term that names several labels joins them with a comma and a space (`req, input`).
 - A number in a term of the band is an example (`47m left`). It has the shape of the real text. A day name in a term is an example too (`→ 100% Sat 21:06`).
 - When a label changes in the band or in a tab, change the term here and the copy in `tests/help-text.ts` in the same change. The test `the terms of the help tab are the labels that the band and the other tabs draw` checks the terms against the trees of the band and of the tabs.
+
+## Recommendations
+
+`/token-watch recommend` sends the data of the tabs to a model in one call and shows the recommendations. The call runs only after the person confirms its cost in a dialog. `hooks/recommend.ts` holds the pure functions, `hooks/view.ts` the dialog (`recommendEls`), and `hooks/register.ts` the command, the call and the counting.
+
+### Command
+
+- `command.run` with the argument `recommend` (after a trim) opens the dialog. Any other argument opens the pane, as before. The command registers `argumentHint: '[recommend]'`.
+- The command reads the data at once: the snapshots of the store, the context breakdown and the state values. It builds the prompt and keeps it in the state value `recommend`. The call sends this prompt, so the dialog shows the estimate of the prompt that it sends.
+
+### Dialog
+
+The dialog is a pane of its own, id `token-watch-recommend`, title `token-watch recommend`, so the tabs keep their state. `$.ui.open` gets `focus`, `closeOnEscape` and `holdToasts` (a dialog), 80 columns and 18 rows.
+
+```text
+Ask sonnet for recommendations on this usage?
+
+model          sonnet
+input          ≈ 1.3k tokens, estimated from the length of the prompt
+output         up to 4.0k tokens
+highest cost   ≈ $0.04 at API prices of sonnet-5-5, with the full output cap
+plan           On a subscription the call counts against the plan allowance.
+
+The prompt holds the data of the Session, Week and Why tabs: token counts,
+costs, plan limits, and the names of repos, memory files, MCP servers and
+agents. It holds no transcript text, no file content and no prompt text.
+
+[ Ask sonnet ]  [ Cancel ]
+a asks, c or Esc cancels. No call runs before you press Ask.
+```
+
+The example shows the terminal. The desktop draws the same tree in its proportional font and its own buttons. The dialog has no `Svg`.
+
+- The title is bold. A row has a label column of 15 cells (`flexShrink: 0`, dimmed) and a value column of `available - 15` cells, at least 20 (`flexShrink: 1`), with one `Text` that wraps (`wrap: 'wrap'`), as the rows of the help tab. Without an available width, the value column only shrinks.
+- The highest cost is bold. It has `≈` when the price is a fallback price. A model without a price reads `unknown: the table of the mod has no price for this model`.
+- `Ask sonnet` is a `Button` with the key `recommend-ask`, the hotkey `a` and `variant: 'primary'`. `Cancel` has the key `recommend-cancel` and the hotkey `c`. No button has `autoFocus`, so a second Enter after the command does not start the call.
+- After Ask, the dialog shows `Asking sonnet…` in bold, the dimmed line `The reply shows here. The call stops after 2 minutes.` and `Cancel`. The mod opens the pane again with the same id, `closeOnEscape`, 80 columns and 24 rows, and without `holdToasts`: the person reads the reply there, and the toasts show again.
+- After the reply, the dialog shows one `Markdown` with the reply and a dimmed line with the usage: `sonnet · input 2.4k · output 800 · ≈ $0.01 at API prices · counted in the Session tab under the scope recommend`. The input is the input, cache read and cache write tokens together.
+- After a call without a reply, the dialog shows `No recommendations` in bold, the reason, and the usage line when the call used tokens.
+- Esc, the close mark and Cancel close the dialog. A close stops a call that runs (the `AbortController` of the call) and sets the state value to `null`. The `ui.close` hook does this for Esc and the close mark. The `$.ui.close` of the mod does not run the `ui.close` hook of the mod, so the Cancel handler does the same work itself (`endRecommend`). A reply that comes after a close is dropped, and its tokens still count.
+- Without a state value (for example after a reload with the pane open), the pane shows `Run /token-watch recommend to ask for recommendations.`
+
+### Estimate and cost
+
+- Input estimate: the characters of the system prompt and the prompt, divided by 3 and rounded up (`estimateTokens`). Data text with many numbers has short tokens. The identity block that Claude Code puts before the system prompt is not counted.
+- Output cap: 4,000 tokens (`maxTokens`). Thinking tokens count in the cap.
+- Highest cost: the input estimate at the input price plus the output cap at the output price (`maxCostOf`).
+- Price model (`priceModelOf`): an id that starts with `claude-` prices itself. An alias becomes `claude-<alias>`, so `sonnet` becomes `claude-sonnet`. It has no version, so `priceInfo` gives the price of the newest model of its family (`claude-sonnet-5-5` on 2026-10-07), and the cost has `≈`. `$.model.complete` resolves the alias like `--model`, but its result does not name the model, so the mod cannot price the resolved model.
+
+### Prompt
+
+The system prompt is fixed text (`RECOMMEND_SYSTEM`):
+
+```text
+You give advice on the Claude Code usage of one person. The data comes from token-watch, a Claude Code mod that counts the tokens of the sessions on this computer. The data holds token counts, costs, plan limits and the names of repos, memory files, MCP servers and agents. It holds no conversation text.
+
+Give at most 5 recommendations that lower the cost and the use of the plan allowance. Use only these levers, which the person controls:
+- Resume or new session. A message after a pause longer than the cache life writes the whole context to the cache again: a resume. A new session starts with a small context.
+- Memory files and MCP servers. Their tokens go into every request.
+- Model choice. A smaller model has a lower price for each token.
+- Subagents. A subagent works in a context of its own, and its cache expires after 5 minutes.
+
+Rules:
+- Base each recommendation on figures in the data, and name them.
+- Give the expected saving as a figure when the data allows it.
+- When the data shows no problem for a lever, give no recommendation for it.
+- Every cost is an estimate at API list prices. On a subscription the plan allowance counts, not the dollars: use the costs to compare.
+- Write Markdown: a heading for each recommendation, then at most three sentences. Put the largest saving first. No table. At most 300 words.
+```
+
+The prompt (`recommendPrompt`) starts with the time of the reading and has these sections, in this order:
+
+| Section | Content |
+|---|---|
+| Plan limits | Each limit with its percent, its reset, the time of 100% at the current pace (as in the band) and the age of an old reading. |
+| This conversation, by model and scope | One line for each row of the Session tab: requests, input, cache write, cache read, output, cost and share. A cost from a fallback price names the key of its price. The total, and the cost that `/cost` reports. |
+| Cache writes of this conversation, by cause | The three causes with tokens, cost and share, and the two cache lifetimes. |
+| Cache history of this conversation | The count of the main requests in the last 4 hours, the strip of the Session tab as 48 letters (`W` warm, `c` cold, `.` before the first request), and each resume with its age and cost. |
+| Context of this conversation | The context row and the categories of the Why tab, and its lists of memory files, MCP servers and custom agents. |
+| This week | The start of the week, the weekly limit with its reset and projection, the highest weekly percent of each past period of 12 hours, and the tables `by repo` and `by model and scope` of the Week tab, at most 10 rows each. |
+| API list prices in USD per million tokens | The newest model of each family in the price table, with its input, cache write, cache read and output price. |
+
+The prompt holds no transcript text, no file content and no prompt text. The mod does not read the messages of the session.
+
+### Call
+
+- The press handler of Ask calls `$.model.complete({ model, system, prompt, maxTokens: 4000, effort: 'medium', timeoutMs: 120000 }, { signal })`.
+- The model is the `userConfig` option `recommendModel`. The default is the alias `sonnet` (Sonnet 5.5 on 2026-10-07; decision of 2026-10-07). The alias resolves like `--model`, so the default follows each new Sonnet release without an edit. An empty option, or an option that is not a text, gives the default.
+- The effort is `medium`. Thinking tokens count in the output cap, so a high effort could leave no room for the reply.
+- The call has a time limit of 2 minutes.
+- A request that the engine refuses to send (for example a model that is not allowed) rejects. The dialog then shows `The request was not sent: ` and the reason, and nothing counts.
+- A result without a reply has one of three reasons (`failureText`): `The API answered with an error: <kind> (HTTP <status>).`, `The model sent a reply without text.` and `The call stopped before the reply: it was cancelled, or no reply came within 2 minutes.`
+- The reply stays in the state value. The mod does not write it into the conversation, so the model of the session does not read it. The slash command note is still recorded, as for every `/token-watch`.
+
+### Counting
+
+- The `usage` of the call goes into `totals` and `hours` under the price model and the scope `recommend`, on every arm of the result. A call whose four counts are 0 adds nothing.
+- The cost is `costOf(usage, true)`: a cache write has the 5-minute price, as in a subagent, because the call does not use the cache of a conversation.
+- The causes and `main` do not change: the call is no thread of the conversation.
+- The snapshot carries the hours, so the Week and the Now tab count the call too. The Session tab shows the row `sonnet ≈` `recommend`, and the Week tab the row `sonnet recommend ≈`.
+- The band counts the price model among the models of the conversation, so a dimmed `+1 model` can show after a call.
+
+### Model comparison
+
+Pending: one run with Sonnet 5.5 and one with Opus 5.5 on the same data. Sonnet stays the default unless Opus gives clearly better recommendations.
 
 ## Data model
 
@@ -623,6 +730,7 @@ The state lasts for one conversation. `/clear`, `/resume` and `/branch` reset it
 - `tab`: the selected tab of the pane.
 - `breakdown`: the last context breakdown, for tab 4.
 - `others`: the snapshots of the shared store that the pane read last.
+- `recommend`: the dialog of `/token-watch recommend`: an id, the phase (`confirm`, `asking`, `answered`, `failed`), the model, the price model, the prompt, the input estimate, the output cap, the highest cost, the reply or the reason, and the counted usage. `/clear`, `/resume` and `/branch` do not reset it.
 
 ### Shared store (`$.store`)
 
@@ -705,7 +813,8 @@ To update the prices: run `make prices`, read the pricing page, add the new keys
 | `hooks/tally.ts` | Pure functions: add a request to the totals, classify the cache-write cause, add to the hourly buckets, merge the store snapshots, sum by repo, by model and scope, and by time window. |
 | `hooks/temperature.ts` | Pure functions: fraction, stage, minutes left, `heat(x)` for graphics, `heatText(x)` for text, the cells of the tube with their characters and colours, the cells of the cache history strip and the cell of a time in it (`stripCellAt`), and the SVG documents of the desktop surface: the tube and the bars (`barSvg`), the strip (`stripSvg`) and the week history (`sparkSvg`). |
 | `hooks/format.ts` | Pure functions: token and money format, model label, the `≈` mark of a name (`markedCell`), the width of a text in the proportional font of the desktop (`desktopCells`), band text parts, the limits and their projections (`limitItems`, `limitProjection`, `fullAt`), the projection of the Week tab, history cells, the day names of the week, `fitColumns`, `fitList` and `placeMarks`. It has no bar function: `view.ts` draws every bar from the cells and the documents of `temperature.ts`. |
-| `hooks/view.ts` | Pure functions that build the element trees of the band and the pane from data: the row builder `tableEls` for all tables and grids, the builders of the bars, the strip, the resumes row, the time axis, the week history and the day axis, and `helpEls` with the text of tab 5. The element table and the surface are parameters. |
+| `hooks/view.ts` | Pure functions that build the element trees of the band and the pane from data: the row builder `tableEls` for all tables and grids, the builders of the bars, the strip, the resumes row, the time axis, the week history and the day axis, `helpEls` with the text of tab 5, and `recommendEls`, the dialog of `/token-watch recommend`. The element table and the surface are parameters. |
+| `hooks/recommend.ts` | Pure functions of `/token-watch recommend`: the system prompt, the prompt from the data of the tabs (`recommendPrompt`), the input estimate, the highest cost, the price model of an alias, the model option and the text of a call without a reply. |
 | `scripts/prices.mjs` | `make prices`: lists the models in the store and how each one is priced. |
 | `scripts/prices-rule.mjs` | The price rule of `prices.ts` for Node, and the pure helpers of `prices.mjs`. It has no import, so the tests load it. |
 | `types/index.d.ts` | Declares the `$.state` values. |
@@ -722,6 +831,7 @@ The pure functions do not call the mods API and do not read the clock. The time 
 - A failure of `$.store` or `$.session.usage()` is caught. The band and the pane show the last known data.
 - If a hook of the mod fails, Claude Code skips the hook. The `turn.step` hook returns the result of `next(e)` in all cases, so the request is never changed.
 - A store snapshot with an unknown `v` or a wrong shape is ignored.
+- A model call without a reply shows its reason in the dialog, and its tokens count. A request that the engine refuses to send shows the reason and counts nothing.
 
 ## Tests
 
@@ -751,6 +861,10 @@ The pure functions do not call the mods API and do not read the clock. The time 
 - Mount tests of tabs 2 to 5 on the `terminal` and the `desktop` surface: the pane is mounted, and the keys `tab-2` to `tab-5` select the tabs. Each tab draws the tree of the mod: the tab buttons are present, and the text `drawn by Claude Code` of the engine is not. The column boxes have the widths of the tab. On the desktop, each tab holds at least one `Svg` and no `Text` with a bar character. On the terminal, each tab holds no `Svg` and a `Text` with `█` or `░`.
 - Help tab on both surfaces: the tab bar has the five labels `Now`, `Session`, `Week`, `Why` and `Help`, and the key `tab-5` selects the tab. Every term and every explanation of the approved text is in the tree, and the six headings are bold. The term column is a `Box` of `width: 22` and `flexShrink: 0`. The stage words, the selected row, the resume mark and the tube have the styles of the table above, and every other term is plain. The explanation is one plain `Text` with `wrap: 'wrap'`, also at 45 columns, where nothing is cut. The terms match the labels of the band and of tabs 1 to 4. The tab needs no request, reads no key of the store, and does not change when data arrives.
 
+- Recommend, pure functions: the price model of an alias and of an id, the price source, the model option with its default, the input estimate, the highest cost with and without a price, the text of each reason of a call without a reply, the time ago, the levers and rules of the system prompt, the sections and lines of the prompt with data and without data, and the price that a fallback cost names.
+- Recommend dialog on both surfaces: `/token-watch recommend` opens the pane `token-watch-recommend` as a dialog (`focus`, `closeOnEscape`, `holdToasts`, 80 columns, 18 rows) with the title, the five rows, the estimate, the output cap, the cost at the price of `sonnet-5-5`, the note on the plan, the data note and the two buttons, and no model call runs. The rows keep the label column of 15 cells and wrap the value at 80 and at 45 columns. Ask runs one call with the model, the system prompt, the cap, the effort and the time limit, and the dialog showed the estimate of that prompt. The pane opens again for the reply without `holdToasts` and with 24 rows. The reply is one `Markdown`, with the usage line. Cancel closes the dialog and runs no call. A call without a reply shows the reason, and a refused request shows why. The option `recommendModel` sets the model of the dialog and of the call. The phases and a model without a price, in `view.test.ts`.
+- Recommend counting: the call goes into the hours of the snapshot under `claude-sonnet|recommend` with the cost of `costOf(usage, true)`; the Session tab shows the row on both surfaces; a call without a reply counts its tokens; a call with no tokens adds no row; Cancel while the call runs drops the reply and counts the tokens. `tests/helpers.ts` stubs `$.model.complete`: no test makes a real model call. The test engine raises no `ui.close` of the person, so Esc is covered by `closeOnEscape` in the open arguments.
+
 `claude plugin validate --strict` passes.
 
 ## Manual verification
@@ -758,6 +872,7 @@ The pure functions do not call the mods API and do not read the clock. The time 
 - CLI: start `claude --plugin-dir /path/to/token-watch`. Check the band, the cache tube over 60 minutes without input, the pane with its five tabs, and a second session in tab 1. Read tab 5 against the band and the tabs.
 - Desktop app: the same checks in a Code tab session.
 - Compare the session totals with the session transcript.
+- `/token-watch recommend` in the CLI and in the desktop app: the dialog shows the cost, Cancel and Esc close it without a call, Ask shows the reply, and the Session tab shows the row `sonnet ≈` `recommend`.
 
 ## Installation
 
