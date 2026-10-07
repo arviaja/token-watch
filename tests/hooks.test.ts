@@ -167,13 +167,39 @@ test('a failure in the /clear hook does not stop the session start, and the next
   expect(snapshot.hours['2026-10-06T12']['claude-fable-5-1|main'].requests).toBe(1)
 })
 
-test('a failed record of the subagent type keeps the spawn result unchanged', async ($, on) => {
-  const fail: Failures = { agentsState: true }
-  harness(on, { fail })
+test('a subagent request counts under the scope subagent when the agent list fails, and under its type once the list answers', async ($, on) => {
+  const fail: Failures = { agentList: true }
+  const h = harness(on, { fail })
   await start($)
   const spawned = await spawn($, 'Explore')
-  expect(spawned.agentId).toBe('agent-Explore')
-  expect(spawned.model).toBe('claude-sonnet-5-5')
+  await step($, SONNET, spawned.agentId)
+  fail.agentList = false
+  await step($, SONNET, spawned.agentId)
+  await end($)
+  const hour = snapshotIn(h.store).hours['2026-10-06T12']
+  expect(hour['claude-sonnet-5-5|subagent'].requests).toBe(1)
+  expect(hour['claude-sonnet-5-5|Explore'].requests).toBe(1)
+})
+
+test('the type of a subagent is read from the agent list once and then kept', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await spawn($, 'Plan')
+  await step($, SONNET, 'agent-Plan')
+  await step($, SONNET, 'agent-Plan')
+  await end($)
+  expect(snapshotIn(h.store).hours['2026-10-06T12']['claude-sonnet-5-5|Plan'].requests).toBe(2)
+  expect(h.agentListCalls.count).toBe(1)
+})
+
+test('an agent that the list does not hold counts under the scope subagent, and the list is read once', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, SONNET, 'agent-of-a-workflow')
+  await step($, SONNET, 'agent-of-a-workflow')
+  await end($)
+  expect(snapshotIn(h.store).hours['2026-10-06T12']['claude-sonnet-5-5|subagent'].requests).toBe(2)
+  expect(h.agentListCalls.count).toBe(1)
 })
 
 const PANE = {
