@@ -1,5 +1,5 @@
 import type { Breakdown, Cause, Causes, Counts, Limit, Main, Resume, Snapshot, Totals } from '../types'
-import { cell, dayTime, fitColumns, formatMoney, formatPercent, formatTokens, historyCells, limitsAgeText, limitsText, markedCell, modelsText, placeMarks, projectionText, shortModel, tubeLabel, weekDayNames, type Column, type HistoryCell, type PlacedMarks, type ResumeMark } from './format'
+import { cell, dayTime, fitColumns, formatMoney, formatPercent, formatTokens, historyCells, limitItems, limitsAgeText, markedCell, modelsText, placeMarks, projectionText, shortModel, tubeLabel, weekDayNames, type Column, type HistoryCell, type LimitItem, type PlacedMarks, type ResumeMark } from './format'
 import { priceInfo, rewarmCost } from './prices'
 import { barSvg, fraction, heat, heatText, minutesLeft, sparkSvg, stageOf, stripCellAt, stripCells, stripSvg, tubeAlt, tubeCells, type Cell, type Stage, type StripCell } from './temperature'
 import { STRIP_MS, groupWeek, mergeReadings, modelSums, weekOf, type NowRow, type Row, type Share } from './tally'
@@ -44,8 +44,8 @@ const WEEK_DROP = [1]
 const WEEK_HEAD_DROP = [2]
 const WHY_DROP = [1, 3]
 
-// limits is the limits alone, limitsAge the `(2h ago)` of an old reading, models the model with the highest cost, more the `+2 models` of the others
-export type BandData = { fraction: number | null; stage: Stage | null; label: string; limits: string; limitsAge: string; context: string; models: string; more: string }
+// limits is the limits with their projections, limitsAge the `(2h ago)` of an old reading, models the model with the highest cost, more the `+2 models` of the others
+export type BandData = { fraction: number | null; stage: Stage | null; label: string; limits: LimitItem[]; limitsAge: string; context: string; models: string; more: string }
 
 export type SessionData = {
   rows: Row[]
@@ -83,12 +83,12 @@ export function bandData(main: Main, totals: Totals, limits: Limit[], limitsAt: 
   // The re-warm cost of a model without a price is left out; a cost from a fallback price shows with ≈
   const info = priceInfo(main.model)
   const label = stage === null ? '' : tubeLabel(stage, main.lastRequestAt, now, main.contextTokens, info === undefined ? null : rewarmCost(main.model, main.contextTokens), info?.source === 'fallback')
-  const limitsLine = limitsText(limits, null, now)
+  const items = limitItems(limits, limitsAt, now)
   const { models, more } = bandModels(totals)
-  if (f === null && limitsLine === '' && models === '') return null
+  if (f === null && items.length === 0 && models === '') return null
   // The tube label already names the context size
   const context = stage === null && main.contextTokens > 0 ? formatTokens(main.contextTokens) : ''
-  return { fraction: f, stage, label, limits: limitsLine, limitsAge: limitsLine === '' ? '' : limitsAgeText(limitsAt, now), context, models, more }
+  return { fraction: f, stage, label, limits: items, limitsAge: items.length === 0 ? '' : limitsAgeText(limitsAt, now), context, models, more }
 }
 
 // The model with the highest cost, and the count of the others: `+1 model`, `+2 models`
@@ -105,7 +105,7 @@ export function weekData(snaps: Snapshot[], now: number): WeekData {
   return {
     percent: week.percent,
     resetAt: week.resetAt,
-    projection: projectionText(week.percent, week.start, now, week.resetAt),
+    projection: projectionText(week.percent, week.start, week.readAt, week.resetAt),
     start: week.start,
     history: historyCells(readings, week.start, now),
     ...groups,
@@ -204,10 +204,23 @@ export function dayAxisEls(E: Els, names: string[], width: number, surface: stri
   return padTo(E, texts, names.length * DAY_CELLS, width)
 }
 
-// The optional parts of the band, in the order that they leave when the band is too wide: from the right
-const BAND_DROP = ['more', 'models', 'context', 'age', 'limits'] as const
+// The optional parts of the band, in the order that they leave when the band is too wide.
+// The projection of each limit is a part of its own. The 5-hour projection leaves before the weekly one, because the weekly limit matters more
+const BAND_DROP = ['more', 'models', 'context', 'age', 'fiveHourProjection', 'weekProjection', 'limits'] as const
 type BandPart = (typeof BAND_DROP)[number]
 type Segment = { value: string; style?: Record<string, unknown> }
+
+const PROJECTION_PARTS: Record<string, BandPart | undefined> = { five_hour: 'fiveHourProjection', seven_day: 'weekProjection' }
+
+// The limits joined with ` · `, each with its projection when the projection is in `shown`
+function limitsValue(limits: LimitItem[], shown: Set<BandPart>): string {
+  return limits
+    .map((l) => {
+      const part = PROJECTION_PARTS[l.kind]
+      return part !== undefined && shown.has(part) ? l.text + l.projection : l.text
+    })
+    .join(' · ')
+}
 
 const dim = (value: string): Segment => ({ value, style: { dimColor: true } })
 
@@ -221,7 +234,8 @@ function bandSegments(d: BandData, shown: Set<BandPart>): Segment[] {
     if (prefix !== '') segments.push(dim(prefix))
     segments.push(...group)
   }
-  add('', { value: shown.has('limits') ? (shown.has('age') ? d.limits + ' ' + d.limitsAge : d.limits) : '' })
+  const limits = limitsValue(d.limits, shown)
+  add('', { value: shown.has('limits') ? (shown.has('age') ? limits + ' ' + d.limitsAge : limits) : '' })
   add('ctx ', { value: shown.has('context') ? d.context : '' })
   add('', { value: shown.has('models') ? d.models : '' }, ...(shown.has('more') ? [dim(' ' + d.more)] : []))
   return segments
@@ -238,7 +252,17 @@ export function bandEls(E: Els, d: BandData, surface: string = 'terminal', avail
   const tubeCellCount = !isTubeShown ? 0 : onDesktop ? BAND_TUBE_CELLS : BAND_TUBE_CELLS + 2
   const budget = typeof available === 'number' && Number.isFinite(available) ? available - BAND_MARGIN : Infinity
   const widthOf = (segments: Segment[]) => tubeCellCount + segments.reduce((sum, s) => sum + cellCount(s.value), 0)
-  const present: Record<BandPart, boolean> = { more: d.models !== '' && d.more !== '', models: d.models !== '', context: d.context !== '', age: d.limits !== '' && d.limitsAge !== '', limits: d.limits !== '' }
+  const hasLimits = d.limits.length > 0
+  const hasProjection = (part: BandPart) => d.limits.some((l) => PROJECTION_PARTS[l.kind] === part && l.projection !== '')
+  const present: Record<BandPart, boolean> = {
+    more: d.models !== '' && d.more !== '',
+    models: d.models !== '',
+    context: d.context !== '',
+    age: hasLimits && d.limitsAge !== '',
+    fiveHourProjection: hasProjection('fiveHourProjection'),
+    weekProjection: hasProjection('weekProjection'),
+    limits: hasLimits,
+  }
   const shown = new Set<BandPart>(BAND_DROP.filter((part) => present[part]))
   let segments = bandSegments(d, shown)
   // Leave out parts from the right until the band fits. The tube, the stage word and the label stay, and so does the last text of a band without a tube
@@ -537,6 +561,7 @@ const HELP: HelpSection[] = [
       { term: '412k cached', text: 'Tokens in the cache: the context.' },
       { term: '$8.24 to re-warm', text: 'What the next message costs to write them again.' },
       { term: 'week 41% · 5h 12%', text: 'Plan limits used, as Claude Code reports them.' },
+      { term: '→ 100% Sat 21:06', text: 'When the limit reaches 100% at the pace so far, if this is before its reset.' },
       { term: 'r31M w1.2M o120k', text: 'The costliest model: cache read, cache write, output.' },
       { term: '+1 model', text: 'More models ran. The Session tab lists all of them.' },
     ],

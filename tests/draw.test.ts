@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
+import { dayTime } from '../hooks/format'
 import { heat, heatText } from '../hooks/temperature'
-import { FABLE, MIN, SONNET, T0, complete, harness, start, step } from './helpers'
+import { FABLE, MIN, RESETS_AT, SONNET, T0, complete, harness, start, step } from './helpers'
 import { HELP_SECTIONS } from './help-text'
 
 const BAND = {
@@ -19,6 +20,13 @@ const PANE = {
 } as const
 
 const SURFACES = ['terminal', 'desktop'] as const
+
+// The harness reads the weekly limit at T0, 51 hours after the start of the week, at 41%: the week reaches 100% before its reset.
+// The 5-hour limit has no reset time, so it has no projection
+const HOUR = 60 * MIN
+const WEEK_START = Date.parse(RESETS_AT) - 7 * 24 * HOUR
+const WEEK_FULL = ' → 100% ' + dayTime(WEEK_START + ((T0 - WEEK_START) * 100) / 41)
+const LIMITS_TEXT = 'week 41%' + WEEK_FULL + ' · 5h 12%'
 // The round bulb that stood before each tube. The code point is written as an escape, so that no file holds the character
 const BULB = '\u25cf'
 const HAS_BULB = new RegExp(BULB)
@@ -44,7 +52,7 @@ test('the band shows the hot tube and the stage after a request, on both surface
     const stage = texts.find((t: any) => JSON.stringify(t.children) === JSON.stringify(['HOT']))
     expect(stage?.props.color).toBe(heatText(1 - 13 / 60))
     expect(await ui.find({ type: 'Text', text: ' 47m left · 411k cached · $8.22 to re-warm' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: 'week 41% · 5h 12%' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: LIMITS_TEXT })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'drawn by Claude Code' })).toBeDefined()
     await ui.unmount()
   }
@@ -122,11 +130,59 @@ test('the band keeps one line at a narrow and at a wide width with three models,
       // Only the model with the highest cost, then the count of the others
       expect(text.includes('fable-5-1 r'), where).toBe(false)
       expect(text.includes('sonnet-5-5 r'), where).toBe(false)
-      expect(text.includes('week 41% · 5h 12%'), where).toBe(columns >= 80)
-      expect(text.includes('opus-5-5 r289k w43.1k o1.1k'), where).toBe(columns >= 100)
-      expect(text.endsWith(' +2 models'), where).toBe(columns >= 120)
+      // The tube and the label take 40 cells on the terminal and 38 on the desktop. The weekly projection adds 17 to the 20 of the limits,
+      // and it stays longer than the model (30) and the count of the others (10)
+      const isTerminal = surface === 'terminal'
+      expect(text.includes('week 41%'), where).toBe(columns >= 80)
+      expect(text.includes(LIMITS_TEXT), where).toBe(columns >= (isTerminal ? 100 : 80))
+      expect(text.includes('opus-5-5 r289k w43.1k o1.1k'), where).toBe(columns >= 120)
+      expect(text.endsWith(' +2 models'), where).toBe(columns >= (isTerminal ? 160 : 120))
       await ui.unmount()
     }
+  }
+})
+
+test('the band shows when both limits reach 100%, drops the 5-hour projection first, and hides a time that has passed, on both surfaces', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  await complete($)
+  // The 5-hour window started 2 hours before T0 and is at 62%: 100% after 193.5 minutes of its 300, at T0 + 73.5 minutes
+  const fiveStart = T0 - 2 * HOUR
+  const rateLimits = [
+    { kind: 'seven_day', percentUsed: 41, resetsAt: RESETS_AT },
+    { kind: 'five_hour', percentUsed: 62, resetsAt: new Date(fiveStart + 5 * HOUR).toISOString() },
+  ]
+  await $.session.measure({ context: { tokens: 1, window: 1_000_000, percent: 0 }, rateLimits, changed: ['rateLimits'] })
+  await h.clock.advance(13 * MIN)
+  const fiveFull = ' → 100% ' + dayTime(fiveStart + (2 * HOUR * 100) / 62)
+  const both = 'week 41%' + WEEK_FULL + ' · 5h 62%' + fiveFull
+  const weekOnly = 'week 41%' + WEEK_FULL + ' · 5h 62%'
+  const model = 'fable-5-1 r400k w10.0k o1.0k'
+  // With the HOT label, both projections take 112 cells on the terminal and 110 on the desktop, and the model 31 more
+  const cases: [number, string][] = [
+    [160, '| ' + both + ' | ' + model],
+    [120, '| ' + both],
+    [100, '| ' + weekOnly],
+    [90, '| week 41% · 5h 62%'],
+  ]
+  for (const surface of SURFACES) {
+    for (const [columns, end] of cases) {
+      const ui = await $.ui.mount(bandAt(columns, surface))
+      const { text, cells } = await bandLine(ui, surface)
+      expect(text.endsWith(end), surface + ' at ' + columns + ': ' + text).toBe(true)
+      expect(cells, surface + ' at ' + columns).toBeLessThanOrEqual(columns - 4)
+      await ui.unmount()
+    }
+  }
+  // 80 minutes after the reading: the 5-hour time has passed, the age shows, and the weekly time is still that of the reading
+  await h.clock.advance(67 * MIN)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    const { text } = await bandLine(ui, surface)
+    expect(text, surface).toContain('| ' + weekOnly + ' (1h ago) | ' + model)
+    expect(text, surface).not.toContain(fiveFull)
+    await ui.unmount()
   }
 })
 
@@ -138,7 +194,7 @@ test('the band is not cut to a width when the engine gives no number of cells', 
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: undefined }, surface })
     const { text } = await bandLine(ui, surface)
-    expect(text.endsWith('| week 41% · 5h 12% | fable-5-1 r400k w10.0k o1.0k +1 model'), surface).toBe(true)
+    expect(text.endsWith('| ' + LIMITS_TEXT + ' | fable-5-1 r400k w10.0k o1.0k +1 model'), surface).toBe(true)
     await ui.unmount()
   }
 })
@@ -586,7 +642,7 @@ test('a /clear conversation seeds no cache temperature', async ($, on) => {
   await $.classic.SessionStart({ source: 'clear', seconds_since_last_response: 4500, context_tokens: 380_000, model: 'claude-opus-5-5' })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: 'COLD' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: 'week 41% · 5h 12%' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: LIMITS_TEXT })).toBeDefined()
 })
 
 test('a resumed conversation without a valid time or context seeds nothing', async ($, on) => {

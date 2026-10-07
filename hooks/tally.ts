@@ -16,7 +16,8 @@ export const NO_MAIN: Main = { model: '', lastRequestAt: null, contextTokens: 0,
 export type Row = { model: string; scope: string; counts: Counts }
 // isUnpriced: the model has no price. isEstimated: the cost uses the fallback price of the newest model of the family
 export type Share = { name: string; cost: number; isUnpriced?: boolean; isEstimated?: boolean }
-export type Week = { start: number; resetAt: number | null; percent: number | null }
+// readAt is the time of the weekly reading that gives the percent, or null without a percent
+export type Week = { start: number; resetAt: number | null; percent: number | null; readAt: number | null }
 export type NowRow = {
   key: string
   isCurrent: boolean
@@ -235,13 +236,13 @@ export function mergeReadings(snaps: Snapshot[]): Reading[] {
 export function weekOf(readings: Reading[], now: number): Week {
   const latest = readings.filter((r) => r.kind === 'seven_day').sort((a, b) => a.at - b.at).pop()
   const resetAt = latest?.resetsAt ? Date.parse(latest.resetsAt) : Number.NaN
-  if (!latest || !Number.isFinite(resetAt)) return { start: now - 7 * DAY_MS, resetAt: null, percent: null }
+  if (!latest || !Number.isFinite(resetAt)) return { start: now - 7 * DAY_MS, resetAt: null, percent: null, readAt: null }
   if (resetAt <= now) {
     const weeks = Math.floor((now - resetAt) / (7 * DAY_MS)) + 1
     const next = resetAt + weeks * 7 * DAY_MS
-    return { start: next - 7 * DAY_MS, resetAt: next, percent: null }
+    return { start: next - 7 * DAY_MS, resetAt: next, percent: null, readAt: null }
   }
-  return { start: resetAt - 7 * DAY_MS, resetAt, percent: latest.percentUsed }
+  return { start: resetAt - 7 * DAY_MS, resetAt, percent: latest.percentUsed, readAt: latest.at }
 }
 
 function splitKey(name: string): [string, string] {

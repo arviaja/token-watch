@@ -188,15 +188,41 @@ The band is one line above the prompt. It has the same content in the CLI and in
 - The band shows only the model with the highest weighted cost of this conversation. When the conversation used more models, a dimmed ` +1 model` or ` +N models` follows, where N is the number of the other models (`+1 model`, `+2 models`).
 - The limits are joined with ` · `, for example `week 41% · 5h 12%`.
 - When the last limit reading is older than 30 minutes, its age follows the limits, for example `week 41% (2h ago)`.
+- When a limit reaches 100% before its reset, its projection follows its percent (see Projection in the band).
 - The mod passes the event on when a survey holds the band.
 - What other mods draw in the band stays below the line.
+
+### Projection in the band
+
+```text
+▕███████▊░░▏ HOT 47m left · 412k cached · $8.24 to re-warm | week 49% → 100% Sat 21:06 · 5h 62% → 100% Wed 15:31
+```
+
+- The weekly limit (`seven_day`) and the 5-hour limit (`five_hour`) each have a window that ends at their reset (`resetsAt`). The weekly window starts 7 days before the reset, the 5-hour window 5 hours before. The spend limit has no window and no projection.
+- The projection is linear: the percent used, divided by the time from the start of the window up to the reading (`limitsAt`), extended to 100%. `fullAt(percent, start, readAt)` in `format.ts` gives the time.
+- The pace ends at the time of the reading, not at now. A pace up to now would put the 100% time of an old reading too late, because the time since the reading would count as time without use.
+- The text is ` → 100% ` and the day and the time in local time (`dayTime`): ` → 100% Sat 21:06`, also for the 5-hour limit (` → 100% Wed 15:31`). It follows the percent of its limit, in the same `Text` as the limits. It is plain, as the limits are.
+- `limitProjection(limit, readAt, now)` returns an empty text, and the band shows no projection, in these cases: the limit has no window or no reset time, there is no reading time, the 100% time is at or after the reset, or the 100% time is not after now. The last case covers an old reading whose 100% time has passed, a limit at 100% or more, and a reset that has passed.
+- `limitItems(limits, readAt, now)` gives each limit its text (`week 49%`) and its projection, in the order week, 5h, spend. `bandData` keeps the list in `BandData.limits`.
+- Each projection is a part of the band of its own. The 5-hour projection leaves before the weekly projection, because the weekly limit is the more important one. The age of the limits leaves before both, so a narrow band can show a projection without the age. For this reason a projection whose time has passed is hidden.
 
 The band must stay on one line. The desktop app wraps a line that is wider than its box, although the `Text` has `wrap: 'truncate-end'`, because its font is proportional. So the band fits itself to the available cells:
 
 - The render hook passes `e.props.bodyColumns` to `bandEls(E, d, surface, available)`.
 - The width of the band is the tube cells plus the characters of the text. The terminal tube is 12 cells (10 cells and the two frame characters). The desktop tube is 10 cells (the `Svg`). The text holds the stage word, the label, the separators ` | ` and the prefix `ctx `.
 - The budget is `available - 4`. The 4 free cells are a safety margin for the proportional font of the desktop app.
-- When the band is wider than the budget, the band leaves out parts from the right until it fits, in this order: the dimmed `+N models` suffix, the model, the context size, the age of the limits, the limits. The context size shows only without a tube, so with a tube the order is: suffix, model, age, limits.
+- When the band is wider than the budget, the band leaves out parts until it fits, in this order: the dimmed `+N models` suffix, the model, the context size, the age of the limits, the 5-hour projection, the weekly projection, the limits. The order is `BAND_DROP` in `view.ts`. The context size shows only without a tube, so with a tube the order is: suffix, model, age, 5-hour projection, weekly projection, limits.
+- With the label of the example above (`HOT 47m left · 412k cached · $8.24 to re-warm`, one other model, a recent reading), the band shows these parts at these widths of `bodyColumns`:
+
+| Parts | Desktop | Terminal |
+|---|---|---|
+| all | 152 or more | 154 or more |
+| without `+1 model` | 143 to 151 | 145 to 153 |
+| both projections, no model | 114 to 142 | 116 to 144 |
+| the weekly projection only | 97 to 113 | 99 to 115 |
+| the limits without a projection | 80 to 96 | 82 to 98 |
+| the tube and its label only | below 80 | below 82 |
+
 - The tube, the stage word and its label stay always. When they alone are wider than the budget, the terminal cuts the label at the end (`truncate-end`). A band without a tube always keeps its last part, so that the line is never empty.
 - Without a number for the available cells (`undefined`), the band leaves out nothing.
 
@@ -464,7 +490,7 @@ The head grid has the label column dimmed. Its rows are:
 - The cost column of the head grid is empty. This column goes first when the pane is narrow.
 - Without a weekly percent, the first row shows `week` and `n/a`, both dimmed, and no bar.
 - A row with no data is left out: `resets` without a reset time, `at the current rate` without a projection, `week used, over time` and the day axis when no period has a reading.
-- The projection is linear: the percent used divided by the hours since the start of the week, extended to 100%. `projectionText` returns only the text after the label: `100% on Fri 16:00`, or `below 100% at reset` when the projection is after the reset. The label is the first column of the row.
+- The projection is linear: the percent used divided by the hours from the start of the week up to the latest weekly reading, extended to 100%. `weekOf` gives the time of that reading as `readAt`. The pace ends at the reading and not at now, as in the band (see Projection in the band). `projectionText` returns only the text after the label: `100% on Fri 16:00`, or `below 100% at reset` when the projection is after the reset. The label is the first column of the row.
 - The history has 14 cells, one for each 12-hour period from the start of the week (7 days). A period uses the highest weekly reading of the period from all sessions. A reading that is not a finite number is ignored.
 - A past period without a reading is a dark empty cell. On the terminal, it is `░` dimmed. On the desktop, it is a background rect in `heat(0)` with `opacity="0.18"`. The mod has readings only since it was installed, so the first periods of a week are often empty.
 - A future period shows that the period has not come yet. A period is in the future when it starts at or after now. On the terminal, it is `·` dimmed. On the desktop, it is an outline cell (see Bars).
@@ -570,7 +596,7 @@ Rule: a term has the spelling of the label that the band or a tab draws.
 
 - The heading of a tab section is the number and the label of the tab bar (`1 Now`).
 - A term that names several labels joins them with a comma and a space (`req, input`).
-- A number in a term of the band is an example (`47m left`). It has the shape of the real text.
+- A number in a term of the band is an example (`47m left`). It has the shape of the real text. A day name in a term is an example too (`→ 100% Sat 21:06`).
 - When a label changes in the band or in a tab, change the term here and the copy in `tests/help-text.ts` in the same change. The test `the terms of the help tab are the labels that the band and the other tabs draw` checks the terms against the trees of the band and of the tabs.
 
 ## Data model
@@ -674,7 +700,7 @@ To update the prices: run `make prices`, read the pricing page, add the new keys
 | `hooks/prices.ts` | The price table, the fallback price of a new model (`priceInfo`) and the cost of a usage record. |
 | `hooks/tally.ts` | Pure functions: add a request to the totals, classify the cache-write cause, add to the hourly buckets, merge the store snapshots, sum by repo, by model and scope, and by time window. |
 | `hooks/temperature.ts` | Pure functions: fraction, stage, minutes left, `heat(x)` for graphics, `heatText(x)` for text, the cells of the tube with their characters and colours, the cells of the cache history strip and the cell of a time in it (`stripCellAt`), and the SVG documents of the desktop surface: the tube and the bars (`barSvg`), the strip (`stripSvg`) and the week history (`sparkSvg`). |
-| `hooks/format.ts` | Pure functions: token and money format, model label, the `≈` mark of a name (`markedCell`), band text parts, projection, history cells, the day names of the week, `fitColumns`, `fitList` and `placeMarks`. It has no bar function: `view.ts` draws every bar from the cells and the documents of `temperature.ts`. |
+| `hooks/format.ts` | Pure functions: token and money format, model label, the `≈` mark of a name (`markedCell`), band text parts, the limits and their projections (`limitItems`, `limitProjection`, `fullAt`), the projection of the Week tab, history cells, the day names of the week, `fitColumns`, `fitList` and `placeMarks`. It has no bar function: `view.ts` draws every bar from the cells and the documents of `temperature.ts`. |
 | `hooks/view.ts` | Pure functions that build the element trees of the band and the pane from data: the row builder `tableEls` for all tables and grids, the builders of the bars, the strip, the resumes row, the time axis, the week history and the day axis, and `helpEls` with the text of tab 5. The element table and the surface are parameters. |
 | `scripts/prices.mjs` | `make prices`: lists the models in the store and how each one is priced. |
 | `scripts/prices-rule.mjs` | The price rule of `prices.ts` for Node, and the pure helpers of `prices.mjs`. It has no import, so the tests load it. |
@@ -697,13 +723,14 @@ The pure functions do not call the mods API and do not read the clock. The time 
 
 `claude plugin test` runs all tests without a session.
 
-- Pure functions: totals, causes, hourly buckets, pruning, merge of snapshots, temperature stages and cells at fixed times (also a bar whose fill float rounding puts just below a whole number of cells), the SVG documents of the tube, the bars, the strip and the week history, formats (`formatMoney`: two decimals for every amount, a thousands separator from 1,000 dollars, rounding of the cents, and `$0.00` for zero, a negative amount and a value that is not a number), projection, history, the day names of the week, `fitList`, `placeMarks` (a label that fits, the free cell before the next mark, a mark without a label and its cost in the list, two resumes in one cell, the list before the mark, the ellipsis) and `stripCellAt`.
+- Pure functions: totals, causes, hourly buckets, pruning, merge of snapshots, temperature stages and cells at fixed times (also a bar whose fill float rounding puts just below a whole number of cells), the SVG documents of the tube, the bars, the strip and the week history, formats (`formatMoney`: two decimals for every amount, a thousands separator from 1,000 dollars, rounding of the cents, and `$0.00` for zero, a negative amount and a value that is not a number), projection (`fullAt`; `limitProjection` for both windows, with the day and the time, the pace up to the reading, no projection at or after the reset, after a time that has passed, at 100%, and without a window, a reset time or a reading time; `limitItems`; the Week tab with the pace up to the reading), history, the day names of the week, `fitList`, `placeMarks` (a label that fits, the free cell before the next mark, a mark without a label and its cost in the list, two resumes in one cell, the list before the mark, the ellipsis) and `stripCellAt`.
 - Hooks: two models and two scopes give correct totals; `usage: null` changes nothing; the result of `turn.step` is unchanged; a subagent request is assigned the type from the agent list, which the mod reads once for each subagent; `session.measure` updates the limits; the store write contains the expected snapshot.
 - Text colour: for 101 values of `x` from 0 to 1, `heatText(x)` has a luminance from 0.14 to 0.30 and a contrast of at least 3 against `#ffffff` and against `#1e1e1e`, and keeps the order of the R, G and B channels of `heat(x)`. Samples have fixed values, and the named mode returns the named colour.
 - Text and graphics on both surfaces: the stage words of the band and tab 1, the percents of tabs 3 and 4 and the resume mark have the colour of `heatText`, and the block glyphs of the tubes, the bars and the histories (terminal) and the SVG documents (desktop) have the colours of `heat`. The test values sit where the two differ.
 - Drawings on the `terminal` and the `desktop` surface: the band line, the tube cells and colours, each pane tab, the tab change by key. On the desktop, the band and tab 1 hold one `Svg` with an `alt` that starts with `cache `, and no tube cells; on the terminal they hold no `Svg`.
 - History grid on both surfaces: the three rows with their labels and texts; the cell offsets of the marks and of the axis labels (terminal: exact strings; desktop: the `Box` widths before each piece); one resume, two resumes far apart, two resumes close together, a resume in the last cell, many resumes, no resume, and a resume older than 4 hours; the strip `Svg` has no triangle and is 14 high; the label column drops on a narrow pane.
 - Band width: for one, two and three models, on both surfaces and at the widths 60, 80, 100, 120, 160 and without a number, the band is never wider than the budget (`available - 4`), the parts leave in the order of the Band section, the suffix reads `+1 model` and `+2 models`, and the limits read `week 49% · 5h 8%`. A band whose tube, stage word and label are wider than the budget keeps them. The draw tests mount the band with a narrow and a wide `bodyColumns`.
+- Band projection on both surfaces: both projections after their percents in one plain `Text`; no projection for a limit that does not reach 100% before its reset, without a reset time, and for the spend limit; at the widths 60 to 140 and at each width from 40 to 150, the model leaves, then the 5-hour projection, then the weekly projection, then the limits, and the band is never wider than the budget; an old reading keeps the times of its pace and shows its age, the age leaves before the projections, and a 5-hour time that has passed is hidden. The draw tests mount the band with both projections at 160, 120, 100 and 90 cells and after the 5-hour time has passed.
 - `fitColumns`: the table fits, one drop, several drops, no available width. A narrow tab 1 keeps the cache, the repo, `60 min` and `today`.
 - Table layout: every row of each table has the same width, and each column starts at the same position in every row.
 - Session labels on both surfaces: the total row has a dimmed `estimate` cell and a bold rest; the `reported` row and the note show only when Claude Code reports a cost; the note is one dimmed `Text` that is not a table row, and the tables stay aligned at every width.

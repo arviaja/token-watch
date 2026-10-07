@@ -14,6 +14,7 @@ export const HELP_SECTIONS: { title: string; rows: [string, string][] }[] = [
       ['412k cached', 'Tokens in the cache: the context.'],
       ['$8.24 to re-warm', 'What the next message costs to write them again.'],
       ['week 41% · 5h 12%', 'Plan limits used, as Claude Code reports them.'],
+      ['→ 100% Sat 21:06', 'When the limit reaches 100% at the pace so far, if this is before its reset.'],
       ['r31M w1.2M o120k', 'The costliest model: cache read, cache write, output.'],
       ['+1 model', 'More models ran. The Session tab lists all of them.'],
     ],

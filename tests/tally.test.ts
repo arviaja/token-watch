@@ -157,16 +157,23 @@ test('nowRows shows a working session as not working after 10 minutes without a 
 test('weekOf uses the latest weekly reading', async () => {
   const resetsAt = new Date(T0 + 5 * DAY_MS).toISOString()
   const w = weekOf([{ at: T0 - MIN, kind: 'seven_day', percentUsed: 40, resetsAt }, { at: T0, kind: 'seven_day', percentUsed: 41, resetsAt }], T0)
-  expect(w).toEqual({ start: T0 - 2 * DAY_MS, resetAt: T0 + 5 * DAY_MS, percent: 41 })
-  expect(weekOf([], T0)).toEqual({ start: T0 - 7 * DAY_MS, resetAt: null, percent: null })
+  expect(w).toEqual({ start: T0 - 2 * DAY_MS, resetAt: T0 + 5 * DAY_MS, percent: 41, readAt: T0 })
+  expect(weekOf([], T0)).toEqual({ start: T0 - 7 * DAY_MS, resetAt: null, percent: null, readAt: null })
   const old = new Date(T0 - DAY_MS).toISOString()
-  expect(weekOf([{ at: T0 - 2 * DAY_MS, kind: 'seven_day', percentUsed: 90, resetsAt: old }], T0)).toEqual({ start: T0 - DAY_MS, resetAt: T0 + 6 * DAY_MS, percent: null })
+  expect(weekOf([{ at: T0 - 2 * DAY_MS, kind: 'seven_day', percentUsed: 90, resetsAt: old }], T0)).toEqual({ start: T0 - DAY_MS, resetAt: T0 + 6 * DAY_MS, percent: null, readAt: null })
+})
+
+test('weekOf gives the time of the latest weekly reading, also when now is later', async () => {
+  const resetsAt = new Date(T0 + 5 * DAY_MS).toISOString()
+  const w = weekOf([{ at: T0 - 3 * 60 * MIN, kind: 'seven_day', percentUsed: 41, resetsAt }, { at: T0 - 60 * MIN, kind: 'five_hour', percentUsed: 9 }], T0)
+  expect(w.readAt).toBe(T0 - 3 * 60 * MIN)
+  expect(w.percent).toBe(41)
 })
 
 test('weekOf moves a reset in the past forward by whole weeks', async () => {
   const old = new Date(T0 - 9 * DAY_MS).toISOString()
   const w = weekOf([{ at: T0 - 10 * DAY_MS, kind: 'seven_day', percentUsed: 90, resetsAt: old }], T0)
-  expect(w).toEqual({ start: T0 - 2 * DAY_MS, resetAt: T0 + 5 * DAY_MS, percent: null })
+  expect(w).toEqual({ start: T0 - 2 * DAY_MS, resetAt: T0 + 5 * DAY_MS, percent: null, readAt: null })
 })
 
 test('mergeReadings drops a reading with a resetsAt that is not a string', async () => {

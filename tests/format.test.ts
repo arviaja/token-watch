@@ -8,7 +8,10 @@ import {
   formatMoney,
   formatPercent,
   formatTokens,
+  fullAt,
   historyCells,
+  limitItems,
+  limitProjection,
   limitsAgeText,
   limitsText,
   line,
@@ -192,6 +195,73 @@ test('dayTime and projectionText use local time', async () => {
   expect(projectionText(50, start, start + HOUR, null)).toBe('')
   expect(projectionText(0, start, start + HOUR, resetAt)).toBe('below 100% at reset')
   expect(projectionText(50, start, start, resetAt)).toBe('below 100% at reset')
+  // Without the time of a reading there is no pace
+  expect(projectionText(50, start, null, resetAt)).toBe('')
+})
+
+test('fullAt extends the pace from the start of the window up to the reading to 100%', async () => {
+  const start = new Date(2026, 9, 4, 11, 0).getTime()
+  expect(fullAt(50, start, start + 42 * HOUR)).toBe(start + 84 * HOUR)
+  expect(fullAt(25, start, start + HOUR)).toBe(start + 4 * HOUR)
+  expect(fullAt(0, start, start + HOUR)).toBeNull()
+  expect(fullAt(Number.NaN, start, start + HOUR)).toBeNull()
+  expect(fullAt(50, start, start)).toBeNull()
+  expect(fullAt(50, start, start - HOUR)).toBeNull()
+})
+
+// A reading on Wednesday at 13:00. The week started 50 hours before, the 5-hour window 2 hours before, and both are at 50%
+const READ_AT = new Date(2026, 9, 7, 13, 0).getTime()
+const WEEK_50 = { kind: 'seven_day', percentUsed: 50, resetsAt: new Date(READ_AT - 50 * HOUR + 7 * 24 * HOUR).toISOString() }
+const FIVE_50 = { kind: 'five_hour', percentUsed: 50, resetsAt: new Date(READ_AT - 2 * HOUR + 5 * HOUR).toISOString() }
+
+test('limitProjection gives the day and the time of 100% for the week and the 5-hour limit', async () => {
+  expect(limitProjection(WEEK_50, READ_AT, READ_AT)).toBe(' → 100% Fri 15:00')
+  expect(limitProjection(FIVE_50, READ_AT, READ_AT)).toBe(' → 100% Wed 15:00')
+})
+
+test('limitProjection takes the pace up to the reading, so an old reading does not move the time later', async () => {
+  // At the pace up to now, 2 hours later, the week would reach 100% 4 hours later: on Friday at 19:00
+  expect(limitProjection(WEEK_50, READ_AT, READ_AT + 2 * HOUR)).toBe(' → 100% Fri 15:00')
+  expect(limitProjection(FIVE_50, READ_AT, READ_AT + HOUR)).toBe(' → 100% Wed 15:00')
+})
+
+test('limitProjection is empty when the limit reaches 100% at or after its reset', async () => {
+  // 20% after 2 hours: 100% after 10 hours, and the window has 5
+  expect(limitProjection({ ...FIVE_50, percentUsed: 20 }, READ_AT, READ_AT)).toBe('')
+  // 40% after 2 hours: 100% after exactly 5 hours, at the reset
+  expect(limitProjection({ ...FIVE_50, percentUsed: 40 }, READ_AT, READ_AT)).toBe('')
+  expect(limitProjection({ ...WEEK_50, percentUsed: 10 }, READ_AT, READ_AT)).toBe('')
+  expect(limitProjection({ ...WEEK_50, percentUsed: 0 }, READ_AT, READ_AT)).toBe('')
+})
+
+test('limitProjection is empty when the time of 100% has passed: an old reading, a past reset, a limit at 100%', async () => {
+  expect(limitProjection(FIVE_50, READ_AT, READ_AT + 2 * HOUR)).toBe('')
+  expect(limitProjection(FIVE_50, READ_AT, READ_AT + 2 * HOUR + MIN)).toBe('')
+  expect(limitProjection(FIVE_50, READ_AT, READ_AT + 2 * HOUR - MIN)).toBe(' → 100% Wed 15:00')
+  expect(limitProjection(FIVE_50, READ_AT, READ_AT + 4 * HOUR)).toBe('')
+  expect(limitProjection({ ...FIVE_50, percentUsed: 100 }, READ_AT, READ_AT)).toBe('')
+  expect(limitProjection({ ...FIVE_50, percentUsed: 120 }, READ_AT, READ_AT)).toBe('')
+})
+
+test('limitProjection is empty without a window, a reset time or the time of the reading', async () => {
+  expect(limitProjection({ kind: 'spend_limit', percentUsed: 90, resetsAt: FIVE_50.resetsAt }, READ_AT, READ_AT)).toBe('')
+  expect(limitProjection({ kind: 'other', percentUsed: 90, resetsAt: FIVE_50.resetsAt }, READ_AT, READ_AT)).toBe('')
+  expect(limitProjection({ kind: 'five_hour', percentUsed: 50 }, READ_AT, READ_AT)).toBe('')
+  expect(limitProjection({ ...FIVE_50, resetsAt: 'not a time' }, READ_AT, READ_AT)).toBe('')
+  expect(limitProjection(FIVE_50, null, READ_AT)).toBe('')
+})
+
+test('limitItems orders the limits and gives each its text and its projection', async () => {
+  const spend = { kind: 'spend_limit', percentUsed: 3 }
+  expect(limitItems([spend, FIVE_50, WEEK_50], READ_AT, READ_AT)).toEqual([
+    { kind: 'seven_day', text: 'week 50%', projection: ' → 100% Fri 15:00' },
+    { kind: 'five_hour', text: '5h 50%', projection: ' → 100% Wed 15:00' },
+    { kind: 'spend_limit', text: 'spend 3%', projection: '' },
+  ])
+  expect(limitItems([WEEK_50, FIVE_50], null, READ_AT).map((item) => item.projection)).toEqual(['', ''])
+  expect(limitItems([], READ_AT, READ_AT)).toEqual([])
+  // limitsText shows the limits without their projections
+  expect(limitsText([WEEK_50, FIVE_50], null, READ_AT)).toBe('week 50% · 5h 50%')
 })
 
 test('historyCells takes the highest weekly reading of each 12 hours', async () => {
