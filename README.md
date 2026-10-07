@@ -58,15 +58,26 @@ Claude Code 2.1.287 or later. Tested with 2.1.288 (automated tests) and 2.1.291 
 
 ## Installation
 
-For one session:
+A mod is not sandboxed. It runs with your permissions in the Claude Code process. Read `hooks/register.ts` before you install it, or run `claude plugin validate` on a clone: it lists each event that the mod hooks and each API call that it makes.
+
+Install the mod from the marketplace of this repo:
+
+    claude plugin marketplace add arviaja/token-watch
+    claude plugin install token-watch@token-watch
+
+Sessions that start after the installation load the mod.
+
+To run the mod from a clone, for one session:
 
     claude --plugin-dir /path/to/token-watch
 
-For every session in the CLI and the desktop app, add the path to the `env` block of `~/.claude/settings.json`:
+To run it from a clone for every session in the CLI and the desktop app, add the path to the `env` block of `~/.claude/settings.json`:
 
     "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/token-watch" }
 
-The setting applies to sessions that start after the change. Open sessions do not load the mod. The loaded mod is the code that is checked out in the repo.
+The setting applies to sessions that start after the change. The loaded mod is the code that is checked out in the clone.
+
+Use one of these ways, not two. Two ways load the mod twice.
 
 ## Development
 
