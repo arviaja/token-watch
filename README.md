@@ -41,6 +41,22 @@ Every money amount has two decimals and, from `$1,000.00`, a comma as thousands 
 - Each conversation writes one snapshot into the shared mod store (`~/.claude/plugins/store/`), at most every 15 seconds. Snapshots older than 8 days are deleted.
 - After `/resume` or `/branch`, the mod sets the cache time from the time since the last response that Claude Code passes, so a cold cache shows at once.
 
+### Hooks
+
+Each hook passes its event on unchanged, with two exceptions that concern only the mod's own items: the hook of `/token-watch` and the hook of the mod's pane answer for themselves. The band hook adds its line above what Claude Code and other mods draw there.
+
+| Event | What the hook does |
+|---|---|
+| `session.start` | Starts the record of the conversation, reads the plan limits, starts the timers and registers `/token-watch`. |
+| `classic.SessionStart` (`clear`, `resume`, `fork`) | Starts a new record for the new conversation. After `/resume` or `/branch`, it sets the cache time from the time since the last response. |
+| `session.end` | Writes the last snapshot to the store. |
+| `turn.step` | Reads the token use of each model request after the request, from the result. The request and its result stay unchanged. For a subagent request, it reads the subagent type from the agent list of the session (`$.agent.list()`), once for each subagent. |
+| `turn.complete` | Clears the working flag of the main conversation. |
+| `session.measure` | Saves the plan limits that Claude Code measured. |
+| `command.run` (`token-watch` only) | Answers the mod's own command: opens the pane. It adds no text to the transcript. |
+| `ui.render` (`AbovePrompt`) | Draws the band. What Claude Code and other mods draw above the prompt stays, below the band. While a survey shows, or while it has no request, no limits and no tokens to show, the hook draws nothing. |
+| `ui.render` (`Pane`, the mod's own pane only) | Draws the pane that `/token-watch` opens. |
+
 ## Limits
 
 - The mod sees only sessions that run it. Codex and sessions from before the installation are not counted. There is no backfill from transcripts.
