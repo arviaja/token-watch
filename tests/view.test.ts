@@ -224,9 +224,9 @@ test('the band leaves out the parts at the widths 60, 80, 100, 120 and 160, with
 test('bandCells counts one cell for each character and a tube of 12 on the terminal, and the proportional widths and a tube of 12 on the desktop', async () => {
   expect(cellsOfBand('week 49%', true, false)).toBe(20)
   expect(cellsOfBand('week 49%', false, false)).toBe(8)
-  // In hundredths of a cell, so that float rounding does not count
-  expect(Math.round(cellsOfBand('week 49%', true, true) * 100)).toBe(2003)
-  expect(Math.round(cellsOfBand('week 49%', false, true) * 100)).toBe(803)
+  // In hundredths of a cell, so that float rounding does not count. The desktop counts the text 4% wider than desktopCells: 8.03 times 1.04
+  expect(Math.round(cellsOfBand('week 49%', true, true) * 100)).toBe(2035)
+  expect(Math.round(cellsOfBand('week 49%', false, true) * 100)).toBe(835)
   expect(cellsOfBand('', true, true)).toBe(12)
 })
 
@@ -234,7 +234,7 @@ test('the band keeps the tube, the stage word and the label when they alone are 
   const { main, totals } = oneRequest()
   const data = bandData(main, totals, LIMITS_49, T0 - 120 * MIN, T0 + 44 * MIN)!
   expect(data.stage).toBe('COOLING')
-  // The tube, the stage word and the label take 62 cells on the terminal and 50.84 on the desktop
+  // The tube, the stage word and the label take 62 cells on the terminal and 52.39 on the desktop
   const widths: Record<string, number[]> = { terminal: [20, 50, 60], desktop: [20, 40, 50] }
   for (const surface of SURFACES) {
     for (const width of widths[surface]) {
@@ -258,16 +258,16 @@ test('the band without a tube leaves out the models, the context size, the age a
   const data = bandData(main, totals, LIMITS_49, T0 - 120 * MIN, T0)!
   expect(data.fraction).toBeNull()
   const full = LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k | ' + OPUS_TEXT + ' +1 model'
-  // On the desktop the same line is 59.41 cells, without the count 52.33, without the models 28.87, without the context size 20.59 and without the age 13.88
+  // On the desktop the same line is 61.79 cells, without the count 54.42, without the models 30.02, without the context size 21.41 and without the age 14.44
   const desktopAt = (width?: number) => flat(bandEls(E, data, 'desktop', width))
-  expect(desktopAt(64)).toBe(full)
-  expect(desktopAt(63)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k | ' + OPUS_TEXT)
-  expect(desktopAt(57)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k | ' + OPUS_TEXT)
-  expect(desktopAt(56)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k')
-  expect(desktopAt(33)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k')
-  expect(desktopAt(32)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT)
-  expect(desktopAt(25)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT)
-  expect(desktopAt(24)).toBe(LIMITS_TEXT)
+  expect(desktopAt(66)).toBe(full)
+  expect(desktopAt(65)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k | ' + OPUS_TEXT)
+  expect(desktopAt(59)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k | ' + OPUS_TEXT)
+  expect(desktopAt(58)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k')
+  expect(desktopAt(35)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k')
+  expect(desktopAt(34)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT)
+  expect(desktopAt(26)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT)
+  expect(desktopAt(25)).toBe(LIMITS_TEXT)
   expect(desktopAt(6)).toBe(LIMITS_TEXT)
   for (const surface of ['terminal']) {
     const at = (width?: number) => flat(bandEls(E, data, surface, width))
@@ -345,7 +345,7 @@ test('the band leaves out the models, then the 5-hour projection, then the weekl
   const plain = 'week 49% · 5h 62%'
   const withModel = (limits: string) => LIVE_TEXT + ' | ' + limits + ' | ' + OPUS_TEXT
   // The line with both projections is 93 cells on the terminal, the model adds 30 and the count 9.
-  // On the desktop the line is 74.24 cells, with the model 97.70 and with the count 104.78, so the same parts stay at smaller widths
+  // On the desktop the line is 76.73 cells, with the model 101.13 and with the count 108.49, so the same parts stay at smaller widths
   const cases: Record<string, [number, string][]> = {
     terminal: [
       [140, withModel(both) + ' +1 model'],
@@ -357,7 +357,7 @@ test('the band leaves out the models, then the 5-hour projection, then the weekl
     ],
     desktop: [
       [140, withModel(both) + ' +1 model'],
-      [105, withModel(both)],
+      [110, withModel(both)],
       [90, LIVE_TEXT + ' | ' + both],
       [70, LIVE_TEXT + ' | ' + weekOnly],
       [60, LIVE_TEXT + ' | ' + plain],
@@ -392,8 +392,8 @@ test('the band takes the pace up to the time of the reading, shows its age, and 
     expect(afterTube(bandEls(E, projectedCase(T0, T0 + 70 * MIN), surface), surface)).toBe(LIVE_TEXT + ' | ' + both + ' (1h ago) | ' + OPUS_TEXT + ' +1 model')
     // 80 minutes after the reading the 5-hour time has passed: only the weekly projection stays, with the time of the reading
     expect(afterTube(bandEls(E, projectedCase(T0, T0 + 80 * MIN), surface), surface)).toBe(LIVE_TEXT + ' | week 49%' + WEEK_FULL + ' · 5h 62% (1h ago) | ' + OPUS_TEXT + ' +1 model')
-    // The age leaves before the projections: the line with the age is 102 cells on the terminal and 80.61 on the desktop
-    expect(afterTube(bandEls(E, projectedCase(T0, T0 + 70 * MIN), surface, surface === 'terminal' ? 100 : 80), surface)).toBe(LIVE_TEXT + ' | ' + both)
+    // The age leaves before the projections: the line with the age is 102 cells on the terminal and 83.35 on the desktop
+    expect(afterTube(bandEls(E, projectedCase(T0, T0 + 70 * MIN), surface, surface === 'terminal' ? 100 : 84), surface)).toBe(LIVE_TEXT + ' | ' + both)
   }
   // With the time of a reading both limits have a projection, without it neither has one
   expect(projectedCase(T0, T0).limits.map((l) => l.projection)).toEqual([WEEK_FULL, FIVE_FULL])

@@ -133,7 +133,7 @@ test('the band keeps one line at a narrow and at a wide width with three models,
       expect(text.includes('fable-5-1 r'), where).toBe(false)
       expect(text.includes('sonnet-5-5 r'), where).toBe(false)
       // On the terminal the tube and the label take 40 cells, the limits 20, the weekly projection 17, the model 30 and the count of the others 10.
-      // On the desktop the same parts take 32.62, 15.41, 12.75, 22.05 and 8.26 cells. The weekly projection stays longer than the model
+      // On the desktop the same parts take 33.44, 16.03, 13.26, 22.93 and 8.59 cells. The weekly projection stays longer than the model
       const from = surface === 'terminal' ? { limits: 80, projection: 100, model: 120, more: 160 } : { limits: 60, projection: 80, model: 100, more: 100 }
       expect(text.includes('week 41%'), where).toBe(columns >= from.limits)
       expect(text.includes(LIMITS_TEXT), where).toBe(columns >= from.projection)
@@ -162,7 +162,7 @@ test('the band shows when both limits reach 100%, drops the 5-hour projection fi
   const weekOnly = 'week 41%' + WEEK_FULL + ' · 5h 62%'
   const model = 'fable-5-1 r400k w10.0k o1.0k'
   // With the HOT label, both projections take 112 cells on the terminal and the model 31 more.
-  // On the desktop they take 88.42 cells and the model 22.50 more, so the same parts stay at smaller widths
+  // On the desktop they take 91.48 cells and the model 23.40 more, so the same parts stay at smaller widths
   const cases: Record<string, [number, string][]> = {
     terminal: [
       [160, '| ' + both + ' | ' + model],

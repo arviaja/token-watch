@@ -31,6 +31,9 @@ const BAND_TUBE_CELLS = 10
 const BAND_DESKTOP_TUBE_CELLS = 12
 // The band keeps these free cells, a margin for the width estimate of the proportional font on the desktop
 const BAND_MARGIN = 4
+// The font table of desktopCells matched the band text of one screenshot to 0.1%, and of two more within 3%.
+// The band counts the desktop text 4% wider, so that it leaves out a part before the line wraps
+const DESKTOP_TEXT_FACTOR = 1.04
 const NOW_TUBE_CELLS = 8
 const BAR_CELLS = 20
 // A day of the week history is 2 cells of 12 hours
@@ -252,7 +255,7 @@ function cellCount(value: string): number {
 // On the desktop the tube is the Svg, and the text is proportional, so each character has its own width (desktopCells)
 export function bandCells(text: string, isTubeShown: boolean, isOnDesktop: boolean): number {
   const tube = !isTubeShown ? 0 : isOnDesktop ? BAND_DESKTOP_TUBE_CELLS : BAND_TUBE_CELLS + 2
-  return tube + (isOnDesktop ? desktopCells(text) : cellCount(text))
+  return tube + (isOnDesktop ? desktopCells(text) * DESKTOP_TEXT_FACTOR : cellCount(text))
 }
 
 export function bandEls(E: Els, d: BandData, surface: string = 'terminal', available?: number): unknown {
