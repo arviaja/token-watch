@@ -155,21 +155,21 @@ async function sessionCost($: any): Promise<number | null> {
   }
 }
 
-// The type of a subagent comes from the agent list of the session, once for each agent
+// The type of a subagent comes from the agent list of the session, once for each agent.
+// An agent that the list does not hold (a workflow's) keeps the scope subagent.
 async function agentTypeOf($: any, agentId: string): Promise<string> {
   const known = (await read($, agents))[agentId]
   if (known !== undefined) return known
-  let type: string | undefined
+  let listed: { id: string; type: string }[]
   try {
-    const listed = (await $.agent.list()).find((a: { id: string; type: string }) => a.id === agentId)
-    type = listed?.type
+    listed = await $.agent.list()
   } catch {
-    // The request still counts, under the scope subagent
+    // The request still counts, under the scope subagent; the next request asks again
+    return 'subagent'
   }
-  if (type === undefined || type === '') return 'subagent'
-  const found = type
-  await update($, agents, (a) => ({ ...a, [agentId]: found }))
-  return found
+  const type = listed.find((a) => a.id === agentId)?.type || 'subagent'
+  await update($, agents, (a) => ({ ...a, [agentId]: type }))
+  return type
 }
 
 // The state of the old conversation must not reach the new one

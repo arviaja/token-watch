@@ -192,6 +192,16 @@ test('the type of a subagent is read from the agent list once and then kept', as
   expect(h.agentListCalls.count).toBe(1)
 })
 
+test('an agent that the list does not hold counts under the scope subagent, and the list is read once', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, SONNET, 'agent-of-a-workflow')
+  await step($, SONNET, 'agent-of-a-workflow')
+  await end($)
+  expect(snapshotIn(h.store).hours['2026-10-06T12']['claude-sonnet-5-5|subagent'].requests).toBe(2)
+  expect(h.agentListCalls.count).toBe(1)
+})
+
 const PANE = {
   plugin: 'token-watch',
   component: 'Pane',
