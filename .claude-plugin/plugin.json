@@ -1,0 +1,10 @@
+{
+  "name": "token-watch",
+  "version": "0.1.0",
+  "description": "Shows token use, plan limits and cache temperature of the sessions on this Mac",
+  "author": { "name": "Sebastian Varga" },
+  "license": "MIT",
+  "repository": "https://github.com/arviaja/token-watch",
+  "homepage": "https://github.com/arviaja/token-watch",
+  "types": "./types/index.d.ts"
+}

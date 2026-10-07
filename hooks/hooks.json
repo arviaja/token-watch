@@ -1,0 +1,4 @@
+{
+  "description": "The token-watch hooks module",
+  "modules": ["./register.ts"]
+}

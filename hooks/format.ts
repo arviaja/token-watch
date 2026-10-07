@@ -1,0 +1,225 @@
+import type { Counts, Limit, Reading } from '../types'
+import { minutesCold, minutesLeft, type Stage } from './temperature'
+
+export type Align = 'left' | 'right'
+export type Column = { width: number; align: Align }
+export type HistoryCell = { char: string; percent: number | null; isFuture: boolean }
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const SPARK = '▁▂▃▄▅▆▇█'
+const HISTORY_MS = 12 * 3_600_000
+const HISTORY_CELLS = 14
+const LIMIT_LABELS: Record<string, string> = { seven_day: 'week', five_hour: '5h', spend_limit: 'spend' }
+const LIMIT_ORDER = ['seven_day', 'five_hour', 'spend_limit']
+
+export function formatTokens(n: number): string {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return '0'
+  if (n < 1000) return String(Math.round(n))
+  for (const [divisor, unit] of [
+    [1e3, 'k'],
+    [1e6, 'M'],
+    [1e9, 'B'],
+  ] as const) {
+    const value = n / divisor
+    if (value < 99.95) return value.toFixed(1) + unit
+    if (value < 999.5) return Math.round(value) + unit
+  }
+  return Math.round(n / 1e9) + 'B'
+}
+
+export function formatMoney(x: number): string {
+  if (typeof x !== 'number' || !Number.isFinite(x) || x <= 0) return '$0.00'
+  const [whole, cents] = x.toFixed(2).split('.')
+  return '$' + whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + cents
+}
+
+export function formatPercent(p: number): string {
+  return String(Math.round(p * 10) / 10) + '%'
+}
+
+export function shortModel(id: string): string {
+  if (typeof id !== 'string' || id === '') return 'unknown'
+  return id.replace(/^claude-/, '').replace(/-\d{8}$/, '')
+}
+
+export function repoName(root: string): string {
+  const trimmed = (root ?? '').replace(/\/\.(claude\/)?worktrees\/[^/]+\/?$/, '').replace(/\/+$/, '')
+  const name = trimmed.split('/').pop() ?? ''
+  return name === '' ? 'unknown' : name
+}
+
+// Pads a text to the column width; a cut text ends in an ellipsis, and one space always stays free
+export function cell(text: string, column: Column): string {
+  let chars = Array.from(text)
+  const room = column.width - 1
+  if (chars.length > room) chars = [...chars.slice(0, Math.max(0, room - 1)), '…']
+  const gap = ' '.repeat(column.width - chars.length)
+  return column.align === 'right' ? gap + chars.join('') : chars.join('') + gap
+}
+
+// The mark after the name of a model whose cost comes from a fallback price
+export const ESTIMATE_MARK = ' ≈'
+
+// A name with the estimate mark after it. A name that is too long for the column is cut with an ellipsis, and the mark stays whole.
+// The result fits the column with the one free cell that cell() keeps, so cell() does not cut it again
+export function markedCell(name: string, column: Column): string {
+  const room = column.width - 1
+  const chars = Array.from(name)
+  const mark = Array.from(ESTIMATE_MARK).length
+  if (chars.length + mark <= room) return name + ESTIMATE_MARK
+  return chars.slice(0, Math.max(0, room - mark - 1)).join('') + '…' + ESTIMATE_MARK
+}
+
+// The indexes of the columns that stay: while the table is wider than the room, columns go in the drop order
+export function fitColumns(widths: number[], dropOrder: number[], available: number | undefined): number[] {
+  const kept = widths.map((_, i) => i)
+  if (typeof available !== 'number' || !Number.isFinite(available)) return kept
+  let total = widths.reduce((s, w) => s + w, 0)
+  for (const i of dropOrder) {
+    if (total <= available) break
+    const at = kept.indexOf(i)
+    if (at === -1) continue
+    kept.splice(at, 1)
+    total -= widths[i]
+  }
+  return kept
+}
+
+// The items joined by commas. A list that is too long keeps its last items after an ellipsis
+export function fitList(items: string[], room: number): string {
+  const all = items.join(', ')
+  const length = (text: string) => Array.from(text).length
+  if (length(all) <= room) return all
+  let kept = ''
+  for (let i = items.length - 1; i >= 0; i--) {
+    const next = kept === '' ? items[i] : items[i] + ', ' + kept
+    if (length('… ' + next) > room) break
+    kept = next
+  }
+  return kept === '' ? '…' : '… ' + kept
+}
+
+export type ResumeMark = { cell: number; cost: string }
+export type PlacedMark = { cell: number; cost: string | null }
+export type PlacedMarks = { marks: PlacedMark[]; list: { at: number; text: string } | null }
+
+// The free cells between a list of costs and the nearest item of its row
+const LIST_GAP = 2
+
+// Places the resume marks in a row of `width` cells; the last cell stays free, as in cell().
+// A label is the mark, a space and the cost. It stays whole and needs one free cell before the next mark, or before the end of the row.
+// A mark with no room for its label shows only the mark, and its cost goes to a list of costs in time order.
+// The list starts after the last item of the row. When it does not fit there, it ends before the first mark without a label, after the item before that mark.
+// When it fits in neither place, it takes the larger place, and fitList keeps the newest costs behind an ellipsis.
+export function placeMarks(marks: ResumeMark[], width: number): PlacedMarks {
+  const length = (text: string) => Array.from(text).length
+  const itemEnd = (mark: PlacedMark) => mark.cell + (mark.cost === null ? 1 : 2 + length(mark.cost))
+  const sorted = [...marks].sort((a, b) => a.cell - b.cell)
+  const placed: PlacedMark[] = []
+  const unlabelled: ResumeMark[] = []
+  sorted.forEach((mark, i) => {
+    const next = i + 1 < sorted.length ? sorted[i + 1].cell : width
+    // Two resumes in one cell share its mark: the later one has the label
+    const isFit = next !== mark.cell && mark.cell + 2 + length(mark.cost) < next
+    if (next !== mark.cell) placed.push({ cell: mark.cell, cost: isFit ? mark.cost : null })
+    if (!isFit) unlabelled.push(mark)
+  })
+  if (unlabelled.length === 0) return { marks: placed, list: null }
+  const costs = unlabelled.map((m) => m.cost)
+  const all = costs.join(', ')
+  const after = itemEnd(placed[placed.length - 1]) + LIST_GAP
+  const roomAfter = width - 1 - after
+  if (length(all) <= roomAfter) return { marks: placed, list: { at: after, text: all } }
+  const anchor = unlabelled[0].cell
+  const earlier = placed.filter((m) => m.cell < anchor).pop()
+  const roomBefore = anchor - LIST_GAP - (earlier === undefined ? 0 : itemEnd(earlier) + LIST_GAP)
+  const isBefore = length(all) <= roomBefore || roomBefore > roomAfter
+  const room = isBefore ? roomBefore : roomAfter
+  if (room < 1) return { marks: placed, list: null }
+  const text = fitList(costs, room)
+  return { marks: placed, list: { at: isBefore ? anchor - LIST_GAP - length(text) : after, text } }
+}
+
+export function line(cells: string[], columns: Column[]): string {
+  return columns.map((column, i) => cell(cells[i] ?? '', column)).join('')
+}
+
+export function ageText(ms: number): string {
+  const minutes = Math.floor(ms / 60_000)
+  return minutes < 60 ? minutes + 'm' : Math.floor(minutes / 60) + 'h'
+}
+
+function rank(kind: string): number {
+  const i = LIMIT_ORDER.indexOf(kind)
+  return i === -1 ? LIMIT_ORDER.length : i
+}
+
+// The age of the last limit reading, when it is older than 30 minutes: `(2h ago)`. Empty when the reading is recent or unknown
+export function limitsAgeText(limitsAt: number | null, now: number): string {
+  return limitsAt !== null && now - limitsAt > 30 * 60_000 ? '(' + ageText(now - limitsAt) + ' ago)' : ''
+}
+
+// The limits joined with ` · `, then the age. Pass null for limitsAt to get the limits alone
+export function limitsText(limits: Limit[], limitsAt: number | null, now: number): string {
+  if (limits.length === 0) return ''
+  const text = [...limits]
+    .sort((a, b) => rank(a.kind) - rank(b.kind))
+    .map((limit) => (LIMIT_LABELS[limit.kind] ?? limit.kind) + ' ' + formatPercent(limit.percentUsed))
+    .join(' · ')
+  const age = limitsAgeText(limitsAt, now)
+  return age === '' ? text : text + ' ' + age
+}
+
+// rewarm is the cost to write the context again, or null for a model without a price. isEstimated marks a cost from a fallback price with `≈`
+export function tubeLabel(stage: Stage, lastAt: number | null, now: number, contextTokens: number, rewarm: number | null, isEstimated: boolean = false): string {
+  const cached = formatTokens(contextTokens)
+  if (stage === 'LIVE' || lastAt === null) return contextTokens > 0 ? 'in turn · ' + cached + ' cached' : 'in turn'
+  if (stage === 'COLD') return minutesCold(lastAt, now) + 'm · next message re-writes ' + cached + (rewarm === null ? '' : ' ≈ ' + formatMoney(rewarm))
+  return minutesLeft(lastAt, now) + 'm left · ' + cached + ' cached' + (rewarm === null ? '' : ' · ' + (isEstimated ? '≈ ' : '') + formatMoney(rewarm) + ' to re-warm')
+}
+
+export function modelsText(rows: { model: string; counts: Counts }[]): string {
+  return rows
+    .map(
+      (row) =>
+        shortModel(row.model) +
+        ' r' +
+        formatTokens(row.counts.cacheRead) +
+        ' w' +
+        formatTokens(row.counts.cacheWrite) +
+        ' o' +
+        formatTokens(row.counts.output),
+    )
+    .join(' | ')
+}
+
+export function dayTime(ms: number): string {
+  const d = new Date(ms)
+  return DAYS[d.getDay()] + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+}
+
+export function projectionText(percent: number | null, start: number, now: number, resetAt: number | null): string {
+  if (percent === null || resetAt === null) return ''
+  const below = 'below 100% at reset'
+  if (percent <= 0 || now <= start) return below
+  const eta = start + ((now - start) * 100) / percent
+  return eta >= resetAt ? below : '100% on ' + dayTime(eta)
+}
+
+// Always the 14 periods of the week: a period that starts at or after now is a future cell, a past period without a reading is an empty cell
+export function historyCells(readings: Reading[], start: number, now: number): HistoryCell[] {
+  const weekly = readings.filter((r) => r.kind === 'seven_day' && Number.isFinite(r.percentUsed))
+  return Array.from({ length: HISTORY_CELLS }, (_, i): HistoryCell => {
+    const from = start + i * HISTORY_MS
+    if (from >= now) return { char: ' ', percent: null, isFuture: true }
+    const inPeriod = weekly.filter((r) => r.at >= from && r.at < from + HISTORY_MS)
+    if (inPeriod.length === 0) return { char: '░', percent: null, isFuture: false }
+    const top = Math.max(...inPeriod.map((r) => r.percentUsed))
+    return { char: SPARK[Math.min(7, Math.max(0, Math.floor((top / 100) * 8)))], percent: top, isFuture: false }
+  })
+}
+
+// The first letter of each day of the week and a space, `S ` to `S `, so the names stand apart. Day i is the weekday of start + i * 24 h in local time, and it holds 2 cells of the history
+export function weekDayNames(start: number): string[] {
+  return Array.from({ length: HISTORY_CELLS / 2 }, (_, i) => DAYS[new Date(start + i * 24 * 3_600_000).getDay()].slice(0, 1) + ' ')
+}
