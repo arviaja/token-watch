@@ -1052,12 +1052,14 @@ test('the option recommendModel sets the model of the dialog and of the call', {
   expect(h.modelCalls[0].model).toBe('opus')
 })
 
-test('a stored model outside the picker counts as unset, so the dialog and the call use sonnet', { options: { recommendModel: 'claude-opus-5-5' } }, async ($, on) => {
+test('a typed full model id goes to the call as typed, with its exact price and no mark', { options: { recommendModel: 'claude-opus-5-5' } }, async ($, on) => {
   const h = harness(on)
   await start($)
   await $.command.run({ command: 'token-watch', args: 'recommend' })
   const ui = await $.ui.mount(RECOMMEND('terminal'))
-  expect(await ui.find({ type: 'Text', text: 'Ask sonnet for recommendations on this usage?' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Ask claude-opus-5-5 for recommendations on this usage?' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\$0\.0[0-9]$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' at API prices of opus-5-5, with the full output cap' })).toBeDefined()
   await ui.press({ key: 'recommend-ask' })
-  expect(h.modelCalls[0].model).toBe('sonnet')
+  expect(h.modelCalls[0].model).toBe('claude-opus-5-5')
 })

@@ -61,6 +61,7 @@ Tests are in `tests/` and run with `claude plugin test`:
 - `$.model.complete` returns the token counts of the call, but not the model that answered. The mod prices an alias as its family (`sonnet` as `claude-sonnet`, see `priceModelOf`).
 - The `$.ui.close` of the mod does not run the `ui.close` hook of the mod. A handler that closes a pane does the work of the hook itself (`endRecommend`).
 - The test engine cannot raise the `ui.close` of the person (Esc or the close mark). The tests cover the Cancel button, and the open arguments show `closeOnEscape`.
+- A `userConfig` field has only `type`, `title`, `description` and `default`. Claude Code accepts `options` (a picker), but the directory does not accept it yet and blocks the version.
 
 ## Standards
 

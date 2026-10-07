@@ -75,6 +75,12 @@ test('the model comes from the option recommendModel, and sonnet when the option
   expect(modelOption({ recommendModel: '  ' })).toBe('sonnet')
   expect(modelOption({ recommendModel: 3 })).toBe('sonnet')
   expect(modelOption({ recommendModel: ' opus ' })).toBe('opus')
+  expect(modelOption({ recommendModel: 'Sonnet' })).toBe('sonnet')
+  expect(modelOption({ recommendModel: 'Claude-Opus-5-5' })).toBe('claude-opus-5-5')
+  expect(modelOption({ recommendModel: 'Opus[1M]' })).toBe('opus[1m]')
+  // The id of another provider keeps its case
+  const arn = 'arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/AbCd12'
+  expect(modelOption({ recommendModel: arn })).toBe(arn)
 })
 
 test('the input estimate is 1 token for every 3 characters, rounded up', async () => {
