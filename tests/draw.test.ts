@@ -186,6 +186,21 @@ test('the band shows when both limits reach 100%, drops the 5-hour projection fi
   }
 })
 
+test('a /clear keeps the time of the last limit reading, so the band shows its age and the pace up to that reading, on both surfaces', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  await complete($)
+  // Two hours without a request: the limits of the session are still those of the last response, read at T0
+  await h.clock.advance(2 * HOUR)
+  await $.classic.SessionStart({ source: 'clear' })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    expect(await ui.find({ type: 'Text', text: LIMITS_TEXT + ' (2h ago)' }), surface).toBeDefined()
+    await ui.unmount()
+  }
+})
+
 test('the band is not cut to a width when the engine gives no number of cells', async ($, on) => {
   harness(on)
   await start($)

@@ -105,7 +105,7 @@ export function weekData(snaps: Snapshot[], now: number): WeekData {
   return {
     percent: week.percent,
     resetAt: week.resetAt,
-    projection: projectionText(week.percent, week.start, week.readAt, week.resetAt),
+    projection: projectionText(week.percent, week.start, week.readAt, week.resetAt, now),
     start: week.start,
     history: historyCells(readings, week.start, now),
     ...groups,

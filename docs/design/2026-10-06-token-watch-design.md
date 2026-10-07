@@ -490,7 +490,7 @@ The head grid has the label column dimmed. Its rows are:
 - The cost column of the head grid is empty. This column goes first when the pane is narrow.
 - Without a weekly percent, the first row shows `week` and `n/a`, both dimmed, and no bar.
 - A row with no data is left out: `resets` without a reset time, `at the current rate` without a projection, `week used, over time` and the day axis when no period has a reading.
-- The projection is linear: the percent used divided by the hours from the start of the week up to the latest weekly reading, extended to 100%. `weekOf` gives the time of that reading as `readAt`. The pace ends at the reading and not at now, as in the band (see Projection in the band). `projectionText` returns only the text after the label: `100% on Fri 16:00`, or `below 100% at reset` when the projection is after the reset. The label is the first column of the row.
+- The projection is linear: the percent used divided by the hours from the start of the week up to the last measure of the latest weekly reading, extended to 100%. `weekOf` takes the weekly reading with the latest `seenAt` (or `at` without one) from all sessions, and gives that time as `readAt`. The pace ends at the reading and not at now, as in the band (see Projection in the band). `projectionText` returns only the text after the label: `100% on Fri 16:00`, or `below 100% at reset` when the projection is after the reset. When the 100% time is not after now (an old reading), it returns an empty text and the row is left out, as the band leaves out a projection whose time has passed. The label is the first column of the row.
 - The history has 14 cells, one for each 12-hour period from the start of the week (7 days). A period uses the highest weekly reading of the period from all sessions. A reading that is not a finite number is ignored.
 - A past period without a reading is a dark empty cell. On the terminal, it is `░` dimmed. On the desktop, it is a background rect in `heat(0)` with `opacity="0.18"`. The mod has readings only since it was installed, so the first periods of a week are often empty.
 - A future period shows that the period has not come yet. A period is in the future when it starts at or after now. On the terminal, it is `·` dimmed. On the desktop, it is an outline cell (see Bars).
@@ -611,7 +611,7 @@ The state lasts for one conversation. `/clear`, `/resume` and `/branch` reset it
 - `main`: `lastRequestAt`, `contextTokens`, `model`, `isWorking`, `requestTimes` (the times of the main requests of the last 4 hours) and `resumes` (the time and the weighted cost of each resume in the last 4 hours).
 - `contextTokens` is input plus cache read plus cache write plus output of the last main request.
 - `limits`: the last `rateLimits` list.
-- `limitsAt`: the time of that reading.
+- `limitsAt`: the time of that reading. `session.measure` sets it to the time of the event. The limits are those of the last API response of the session, so `/clear`, `/resume` and `/branch` reload them with the `limitsAt` of the conversation before. Only without an earlier reading do they count as read at the time of the reload.
 - `readings`: the limit readings of this conversation.
 - `agents`: the map from `agentId` to subagent type.
 - `threads`: per thread, the time of the last request.
@@ -635,14 +635,14 @@ Each conversation writes one key, `run:<session id>:<start time>`, and no other 
   "lastMainRequestAt": 1791374400000,
   "contextTokens": 412000,
   "isWorking": false,
-  "readings": [{ "at": 1791374400000, "kind": "seven_day", "percentUsed": 41, "resetsAt": "2026-10-12T00:00:00Z" }],
+  "readings": [{ "at": 1791374400000, "kind": "seven_day", "percentUsed": 41, "resetsAt": "2026-10-12T00:00:00Z", "seenAt": 1791378000000 }],
   "hours": { "2026-10-06T14": { "claude-fable-5-1|main": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "requests": 0, "cost": 0 } } }
 }
 ```
 
 - `repo` is the folder name of the session root, without a `.worktrees/<name>` or `.claude/worktrees/<name>` suffix.
 - `hours` is keyed by the UTC hour of the request. Hours older than 8 days are removed when the session writes.
-- The conversation keeps a reading each time a percent changes by a whole point, at most 400 readings. The snapshot holds only the `seven_day` readings of the last 8 days.
+- The conversation keeps a reading each time a percent changes by a whole point or the reset changes, at most 400 readings. `at` is the time of the first measure of the reading. A later measure that keeps the percent within a whole point sets `seenAt` on the last reading of its kind, and does not change `at` or `percentUsed`. A reading without a later measure has no `seenAt`. The snapshot holds only the `seven_day` readings of the last 8 days.
 - A conversation writes its key only after its first request.
 - The session writes its key at most once every 15 seconds while it has new data, and once when the session ends.
 - 5 seconds after the session start, the mod deletes each `run:` key with an `updatedAt` older than 8 days.
@@ -731,6 +731,7 @@ The pure functions do not call the mods API and do not read the clock. The time 
 - History grid on both surfaces: the three rows with their labels and texts; the cell offsets of the marks and of the axis labels (terminal: exact strings; desktop: the `Box` widths before each piece); one resume, two resumes far apart, two resumes close together, a resume in the last cell, many resumes, no resume, and a resume older than 4 hours; the strip `Svg` has no triangle and is 14 high; the label column drops on a narrow pane.
 - Band width: for one, two and three models, on both surfaces and at the widths 60, 80, 100, 120, 160 and without a number, the band is never wider than the budget (`available - 4`), the parts leave in the order of the Band section, the suffix reads `+1 model` and `+2 models`, and the limits read `week 49% · 5h 8%`. A band whose tube, stage word and label are wider than the budget keeps them. The draw tests mount the band with a narrow and a wide `bodyColumns`.
 - Band projection on both surfaces: both projections after their percents in one plain `Text`; no projection for a limit that does not reach 100% before its reset, without a reset time, and for the spend limit; at the widths 60 to 140 and at each width from 40 to 150, the model leaves, then the 5-hour projection, then the weekly projection, then the limits, and the band is never wider than the budget; an old reading keeps the times of its pace and shows its age, the age leaves before the projections, and a 5-hour time that has passed is hidden. The draw tests mount the band with both projections at 160, 120, 100 and 90 cells and after the 5-hour time has passed.
+- Reading time: a measure within a whole point moves `seenAt` of the last reading of its kind and never back, `weekOf` takes the reading with the last measure, `mergeReadings` drops a `seenAt` that is not a number, the snapshot carries `seenAt`, the Week tab paces up to `seenAt` and leaves out a time that has passed, and a `/clear` after two hours keeps the reading time, so the band shows `(2h ago)` and the pace up to that reading on both surfaces.
 - `fitColumns`: the table fits, one drop, several drops, no available width. A narrow tab 1 keeps the cache, the repo, `60 min` and `today`.
 - Table layout: every row of each table has the same width, and each column starts at the same position in every row.
 - Session labels on both surfaces: the total row has a dimmed `estimate` cell and a bold rest; the `reported` row and the note show only when Claude Code reports a cost; the note is one dimmed `Text` that is not a table row, and the tables stay aligned at every width.

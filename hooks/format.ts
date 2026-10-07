@@ -171,16 +171,6 @@ export function limitItems(limits: Limit[], readAt: number | null, now: number):
     .map((limit) => ({ kind: limit.kind, text: (LIMIT_LABELS[limit.kind] ?? limit.kind) + ' ' + formatPercent(limit.percentUsed), projection: limitProjection(limit, readAt, now) }))
 }
 
-// The limits joined with ` · `, then the age. Pass null for limitsAt to get the limits alone
-export function limitsText(limits: Limit[], limitsAt: number | null, now: number): string {
-  if (limits.length === 0) return ''
-  const text = limitItems(limits, null, now)
-    .map((item) => item.text)
-    .join(' · ')
-  const age = limitsAgeText(limitsAt, now)
-  return age === '' ? text : text + ' ' + age
-}
-
 // The time when a limit reaches 100%, at the pace from the start of its window up to the reading. Null without a pace.
 // The pace ends at the reading and not at now: an old reading would give a time that is too late
 export function fullAt(percent: number, start: number, readAt: number): number | null {
@@ -226,11 +216,13 @@ export function dayTime(ms: number): string {
   return DAYS[d.getDay()] + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
 }
 
-// The projection of the Week tab. readAt is the time of the weekly reading, or null without a reading
-export function projectionText(percent: number | null, start: number, readAt: number | null, resetAt: number | null): string {
+// The projection of the Week tab. readAt is the time of the weekly reading, or null without a reading.
+// A time that has passed is left out, as in the band
+export function projectionText(percent: number | null, start: number, readAt: number | null, resetAt: number | null, now: number): string {
   if (percent === null || readAt === null || resetAt === null) return ''
   const at = fullAt(percent, start, readAt)
-  return at === null || at >= resetAt ? 'below 100% at reset' : '100% on ' + dayTime(at)
+  if (at === null || at >= resetAt) return 'below 100% at reset'
+  return at > now ? '100% on ' + dayTime(at) : ''
 }
 
 // Always the 14 periods of the week: a period that starts at or after now is a future cell, a past period without a reading is an empty cell

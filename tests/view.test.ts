@@ -950,6 +950,12 @@ test('weekData takes the pace of the week up to the weekly reading, not up to no
   // 100% after 96 hours: Thursday 11:00. Seven hours later the time stays, and the pace up to now would give Thursday 21:00
   expect(weekData([snap], readAt).projection).toBe('100% on Thu 11:00')
   expect(weekData([snap], readAt + 7 * 60 * MIN).projection).toBe('100% on Thu 11:00')
+  // A later measure that kept the percent ends the pace at its time: 50% after 72 hours gives 100% after 144 hours, on Saturday 11:00
+  const held = { ...snap, readings: [{ ...reading, seenAt: readAt + 24 * 60 * MIN }] } as Snapshot
+  expect(weekData([held], readAt + 25 * 60 * MIN).projection).toBe('100% on Sat 11:00')
+  // On Thursday 11:00 the time has passed, and the row is left out
+  expect(weekData([snap], new Date(2026, 9, 8, 11, 0).getTime()).projection).toBe('')
+  expect(flat(weekEls(E, weekData([snap], new Date(2026, 9, 8, 12, 0).getTime())))).not.toContain('at the current rate')
 })
 
 test('weekData passes the start of the week to the view, so that the day axis starts at its weekday', async () => {
