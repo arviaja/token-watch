@@ -1,6 +1,6 @@
 {
   "name": "token-watch",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shows token use, plan limits and cache temperature of the sessions on this Mac",
   "author": {
     "name": "Sebastian Varga"
@@ -24,7 +24,8 @@
     "recommendModel": {
       "type": "string",
       "title": "Model of /token-watch recommend",
-      "description": "An alias (sonnet, opus, haiku) or a full model id. It resolves like --model.",
+      "description": "The model alias of the call. It resolves like --model to the newest model of its family.",
+      "options": ["sonnet", "opus", "haiku"],
       "default": "sonnet"
     }
   }

@@ -14,6 +14,7 @@ Checks in real sessions on 2026-10-06:
 | Light theme | Text in heat colours has a contrast of at least 3:1 on white and on a dark background. The selection colour of the current row is a theme key. Desktop app in the light theme: passed on 2026-10-06. |
 | Help tab | Added on 2026-10-06 with the approved text. Passed on 2026-10-06: key 5 opens it. |
 | Context cost of the mod | Passed. Outside `/token-watch recommend`, the mod sends nothing to the model. In the 24 sessions that ran the mod up to 2026-10-06, the skill list that the model receives does not contain `token-watch` (checked in the session transcripts). Each `/token-watch` adds the command to the conversation, as every slash command does. |
+| `/token-watch recommend` | Passed on 2026-10-07 in the CLI and in the desktop app: the dialog shows the cost, Cancel and Esc close it without a call, Ask shows the reply as Markdown with the usage line, and the store counts each call under the scope `recommend`. The comparison of Sonnet 5.5 and Opus 5.5 is in the design doc. |
 | Totals against the session transcript | Not done. |
 
 Automated: `make verify` passes: the dash check, the secret scan, `claude plugin validate --strict .` and `claude plugin test .`.

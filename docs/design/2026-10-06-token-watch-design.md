@@ -691,7 +691,7 @@ The prompt holds no transcript text, no file content and no prompt text. The mod
 ### Call
 
 - The press handler of Ask calls `$.model.complete({ model, system, prompt, maxTokens: 4000, effort: 'medium', timeoutMs: 120000 }, { signal })`.
-- The model is the `userConfig` option `recommendModel`. The default is the alias `sonnet` (Sonnet 5.5 on 2026-10-07; decision of 2026-10-07). The alias resolves like `--model`, so the default follows each new Sonnet release without an edit. An empty option, or an option that is not a text, gives the default.
+- The model is the `userConfig` option `recommendModel`. It lists `options`, so `/config` draws it as a picker over the aliases `sonnet`, `opus` and `haiku`, and a stored value outside them counts as unset. The default is `sonnet` (Sonnet 5.5 on 2026-10-07; decision of 2026-10-07). The alias resolves like `--model`, so the default follows each new Sonnet release without an edit. `modelOption` also gives the default for an empty option or an option that is not a text.
 - The effort is `medium`. Thinking tokens count in the output cap, so a high effort could leave no room for the reply.
 - The call has a time limit of 2 minutes.
 - A request that the engine refuses to send (for example a model that is not allowed) rejects. The dialog then shows `The request was not sent: ` and the reason, and nothing counts.
@@ -708,7 +708,18 @@ The prompt holds no transcript text, no file content and no prompt text. The mod
 
 ### Model comparison
 
-Pending: one run with Sonnet 5.5 and one with Opus 5.5 on the same data. Sonnet stays the default unless Opus gives clearly better recommendations.
+On 2026-10-07 the command ran with `sonnet` (Sonnet 5.5) and with `opus` (Opus 5.5). All prompts held the same data of the week, from the shared store. The read Sonnet reply came from a desktop session and the Opus reply from a CLI session, so the data of the conversation and of its context differed.
+
+| | Sonnet 5.5 | Opus 5.5 |
+|---|---|---|
+| Tokens | 2.0k input and 550 output (desktop), 1.9k input and 1.2k output (CLI) | 1.9k input, 1.8k output |
+| Cost at API prices | $0.01 and $0.02 | $0.04 |
+| Recommendations | 3: general-purpose subagents to Sonnet, simple work of the main conversation to Sonnet, an MCP server off in sessions that do not need it | 4: general-purpose subagents to Sonnet, routine work of the main conversation to Sonnet, Explore subagents to Haiku, Fable only where it is needed |
+| Figures | Costs and shares from the data, savings in dollars | Costs and shares from the data, savings in dollars and in points of the weekly limit (1% of the week is about $6.60), and the cut of the pace that the week needs to last until the reset (about 20%) |
+| Rules of the answer | Kept: a heading for each recommendation, at most 300 words | Not kept: more than 300 words |
+| Errors | The saving of a move to Sonnet is half of the whole cost, but a cache read has the same price on both models | The same error, and Haiku as a quarter of the Opus price, but its cache read is half of the Opus price |
+
+Result: Opus puts the savings in points of the weekly limit, which helps on a subscription. The recommendations are the same in substance, with the same error in the savings, and the Opus call costs about 4.6 times as much. Opus is not clearly better, so `sonnet` stays the default.
 
 ## Data model
 
