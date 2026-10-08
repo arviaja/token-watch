@@ -41,6 +41,7 @@ Tests are in `tests/` and run with `claude plugin test`:
 - `make typecheck`: the TypeScript check. It has known errors and is not in `verify` yet. It needs `tsconfig.json` and `.claude-plugin/types/`. Claude Code generates both when the mod loads, and git ignores both, so a fresh checkout or worktree can fail for that reason.
 - `make prices`: runs `node scripts/prices.mjs`. It reads the models in the store of the mod (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/store/token-watch_*.json`) and prints each one as `exact`, `fallback from <key>`, `unpriced` or `alias, priced as <key>` (the price model of `/token-watch recommend`, which needs no key), then a summary. It informs, always exits 0 and is not in `verify`. Run it when a pane shows `unpriced` or `≈`, then add the new keys to `PRICES` in `hooks/prices.ts`.
 - `claude --plugin-dir .`: runs the mod in one session.
+- When `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` already loads a clone, `--plugin-dir` loads a second copy. Run a worktree for one session with `claude --settings '{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"<path>"}}'`. A shell variable does not work: the settings file replaces it in a live session, although `claude plugin list` shows the shell value.
 
 ## Rules of the mods API
 

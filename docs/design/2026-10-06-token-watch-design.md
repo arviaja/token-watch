@@ -918,7 +918,8 @@ The pure functions do not call the mods API and do not read the clock. The time 
 - `/token-watch recommend` in the CLI and in the desktop app: the dialog shows the cost, Cancel and Esc close it without a call, Ask shows the reply, and the Session tab shows the row `sonnet ≈` `recommend`.
 - Band button in the CLI and in the desktop app: a click opens and closes the pane, the label follows, Esc on the pane turns the label back to `details`, and the native button of the desktop app fits beside the band text. In the CLI, ctrl+x tab and then Enter or `t` press the button.
 - Band setting: `/token-watch band off` in one session hides the band there at once and in a second session within 15 seconds; `/token-watch band on` shows both again; the setting stays after a new session starts.
-- `CLAUDE_CODE_PLUGIN_DIRS= claude` starts a CLI session without the mod of a clone.
+- `claude --settings '{"env":{"CLAUDE_CODE_PLUGIN_DIRS":""}}'` starts a CLI session without the mod of a clone (checked on 2026-10-08: no band). A shell variable does not: `CLAUDE_CODE_PLUGIN_DIRS=<path> claude` loaded the clone of `settings.json`, although `claude plugin list` showed the path of the variable.
+- To check a branch in a live CLI session while `settings.json` loads the clone: `claude --settings '{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"/path/to/worktree"}}'`.
 
 ## Installation
 

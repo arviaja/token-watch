@@ -130,9 +130,11 @@ Marketplace install:
 | Uninstall | `claude plugin uninstall token-watch@token-watch` |
 | Remove the marketplace | `claude plugin marketplace remove token-watch` |
 
-Clone: remove `CLAUDE_CODE_PLUGIN_DIRS` from the `env` block of `~/.claude/settings.json`, and add it again to turn the mod on. For one CLI session without the mod, set the variable to an empty value:
+Clone: remove `CLAUDE_CODE_PLUGIN_DIRS` from the `env` block of `~/.claude/settings.json`, and add it again to turn the mod on. For one CLI session without the mod, give the variable an empty value with `--settings`:
 
-    CLAUDE_CODE_PLUGIN_DIRS= claude
+    claude --settings '{"env":{"CLAUDE_CODE_PLUGIN_DIRS":""}}'
+
+A shell variable (`CLAUDE_CODE_PLUGIN_DIRS= claude`) does not work: the `env` block of `settings.json` replaces it when the session starts. The same flag with a path runs another clone or a worktree for one session, in place of the clone in `settings.json`.
 
 The uninstall and the removal of the marketplace keep the store of the mod: the snapshots and the band setting, in one file for each way of installation. To delete the data, delete the files after the uninstall:
 
