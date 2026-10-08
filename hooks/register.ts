@@ -23,9 +23,18 @@ const breakdown = atom({ plugin: 'token-watch', key: 'breakdown' } as const, nul
 const others = atom({ plugin: 'token-watch', key: 'others' } as const, [])
 const tab = atom({ plugin: 'token-watch', key: 'tab' } as const, 1)
 const recommend = atom({ plugin: 'token-watch', key: 'recommend' } as const, null)
+const isBandOn = atom({ plugin: 'token-watch', key: 'isBandOn' } as const, true)
+const isPaneOpen = atom({ plugin: 'token-watch', key: 'isPaneOpen' } as const, false)
 
 // The pane's id, used to open the pane and to recognize it when drawing
 const PANE = 'token-watch'
+// The settings of all sessions on this Mac: { band: 'on' | 'off' }. band off hides the band, and a missing value shows it.
+// The key does not start with run:, so the clean-up and the list of the other sessions leave it alone
+const SETTINGS_KEY = 'settings'
+const BAND_OFF = 'Band off in all sessions on this Mac. The mod still counts. /token-watch band on shows it again.'
+const BAND_ON = 'Band on in all sessions on this Mac.'
+const BAND_IS_OFF = 'The band is off. /token-watch band on shows it.'
+const BAND_IS_ON = 'The band is on. /token-watch band off hides it.'
 // The dialog of /token-watch recommend is a pane of its own, so the tabs keep their state
 const RECOMMEND_PANE = 'token-watch-recommend'
 const RECOMMEND_TITLE = 'token-watch recommend'
@@ -70,18 +79,107 @@ async function tick($: any): Promise<void> {
     if (!(await flush($))) isDirty = true
   }
   if (await isOthersShown($)) await loadOthers($)
+  await loadSettings($)
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function isPaneShown($: any): Promise<boolean> {
+  try {
+    return (await $.ui.panes()).some((p: { id: string; isShown: boolean }) => p.id === PANE && p.isShown)
+  } catch {
+    return false
+  }
 }
 
 // The list of the other conversations is read only while the pane shows the Now or the Week tab
 async function isOthersShown($: any): Promise<boolean> {
+  if (!(await isPaneShown($))) return false
+  const n = await read($, tab)
+  return n === 1 || n === 3
+}
+
+// A missing or unknown value shows the band
+function isBandOnIn(settings: unknown): boolean {
+  return !(typeof settings === 'object' && settings !== null && (settings as { band?: unknown }).band === 'off')
+}
+
+// Another session can change the setting, so the tick reads it again
+async function loadSettings($: any): Promise<void> {
   try {
-    const isShown = (await $.ui.panes()).some((p: { id: string; isShown: boolean }) => p.id === PANE && p.isShown)
-    if (!isShown) return false
-    const n = await read($, tab)
-    return n === 1 || n === 3
+    const isOn = isBandOnIn(await $.store.get(SETTINGS_KEY))
+    if ((await read($, isBandOn)) === isOn) return
+    await update($, isBandOn, () => isOn)
+    $.ui.invalidate('ui.render')
   } catch {
-    return false
+    // Keep the last value; the next tick reads again
   }
+}
+
+// The store holds the setting for all sessions. A failed write changes nothing, because the next tick reads the store again
+async function setBand($: any, isOn: boolean): Promise<void> {
+  try {
+    const current = await $.store.get(SETTINGS_KEY)
+    const base = typeof current === 'object' && current !== null && !Array.isArray(current) ? current : {}
+    await $.store.set(SETTINGS_KEY, { ...base, band: isOn ? 'on' : 'off' })
+  } catch (error) {
+    $.ui.toast('The band setting was not saved: ' + messageOf(error))
+    return
+  }
+  await update($, isBandOn, () => isOn)
+  $.ui.invalidate('ui.render')
+  $.ui.toast(isOn ? BAND_ON : BAND_OFF)
+}
+
+// The band button reads the flag for its label, so each open and close sets it. The flag means that the pane is up: shown, covered by another pane, or waiting for room
+async function markPane($: any, isOpen: boolean): Promise<void> {
+  await update($, isPaneOpen, () => isOpen)
+  $.ui.invalidate('ui.render')
+}
+
+// Returns why the pane did not open, or null
+async function openPane($: any): Promise<string | null> {
+  await loadOthers($)
+  if ((await read($, tab)) === 4) await loadBreakdown($)
+  try {
+    const opened = await $.ui.open({ id: PANE, title: 'token-watch', focus: true, closeOnEscape: true, columns: 80, rows: 24 })
+    await markPane($, true)
+    if (opened.isPlaced === false) return 'The token-watch pane is waiting: ' + (opened.reason ?? 'no reason given')
+  } catch (error) {
+    // A refused open must not throw into the session: say why instead
+    return 'The token-watch pane did not open: ' + messageOf(error)
+  }
+  return null
+}
+
+// The engine's list of panes, or the flag when the list is not available
+async function isPaneUp($: any): Promise<boolean> {
+  try {
+    return (await $.ui.panes()).some((p: { id: string }) => p.id === PANE)
+  } catch {
+    return read($, isPaneOpen)
+  }
+}
+
+// A pane that is up closes, also when another pane covers it or it waits for room, so the label [ close ] always closes it.
+// The mod's own $.ui.close does not run its own ui.close hook, so this function marks the pane closed itself
+async function togglePane($: any): Promise<string | null> {
+  if (!(await isPaneUp($))) return openPane($)
+  try {
+    await $.ui.close({ id: PANE })
+  } catch (error) {
+    return 'The token-watch pane did not close: ' + messageOf(error)
+  }
+  await markPane($, false)
+  return null
+}
+
+// The band button is not a slash command, so a press adds nothing to the conversation. A message shows as a toast
+async function pressPane($: any): Promise<void> {
+  const message = await togglePane($)
+  if (message !== null) $.ui.toast(message)
 }
 
 async function loadOthers($: any): Promise<void> {
@@ -209,7 +307,7 @@ async function openRecommend($: any, model: string): Promise<{ text?: string }> 
     const opened = await $.ui.open({ id: RECOMMEND_PANE, title: RECOMMEND_TITLE, focus: true, closeOnEscape: true, holdToasts: true, columns: 80, rows: 18 })
     if (opened.isPlaced === false) return { text: 'The token-watch recommend dialog is waiting: ' + (opened.reason ?? 'no reason given') }
   } catch (error) {
-    return { text: 'The token-watch recommend dialog did not open: ' + (error instanceof Error ? error.message : String(error)) }
+    return { text: 'The token-watch recommend dialog did not open: ' + messageOf(error) }
   }
   return {}
 }
@@ -238,7 +336,7 @@ async function askRecommend($: any): Promise<void> {
     result = await $.model.complete({ model: r.model, system: RECOMMEND_SYSTEM, prompt: r.prompt, maxTokens: r.outputCap, effort: RECOMMEND_EFFORT, timeoutMs: RECOMMEND_TIMEOUT_MS }, { signal: stop.signal })
   } catch (error) {
     // The engine refused to send the request, for example for a model that is not allowed. No call ran
-    await update($, recommend, (v) => (v?.id === r.id ? { ...v, phase: 'failed' as const, text: drawableText('The request was not sent: ' + (error instanceof Error ? error.message : String(error))) } : v))
+    await update($, recommend, (v) => (v?.id === r.id ? { ...v, phase: 'failed' as const, text: drawableText('The request was not sent: ' + messageOf(error)) } : v))
     return
   } finally {
     if (stopRecommend === stop) stopRecommend = null
@@ -323,8 +421,12 @@ export const register: Register = (on, options) => {
       await ensureRun($)
       isDirty = true
       await loadLimits($)
+      await loadSettings($)
       // session.start also runs after a reload of the module
       await dropStaleAsk($)
+      // The pane can stay open over a reload of the module
+      const isOpen = await isPaneUp($)
+      await update($, isPaneOpen, () => isOpen)
     } catch {
       // The timers and the command are still registered
     }
@@ -338,7 +440,7 @@ export const register: Register = (on, options) => {
       void tick($)
     })
     try {
-      await $.command.register({ name: 'token-watch', description: 'Show token use, plan limits and cache temperature', argumentHint: '[recommend]', immediate: true })
+      await $.command.register({ name: 'token-watch', description: 'Show token use, plan limits and cache temperature', argumentHint: '[recommend | band on | band off]', immediate: true })
     } catch {
       // The name is taken after a reload; the command from the first load stays
     }
@@ -417,31 +519,39 @@ export const register: Register = (on, options) => {
     return next(e)
   })
   on('command.run', { command: 'token-watch' }, async ($, e) => {
-    if (e.args.trim() === 'recommend') return openRecommend($, recommendModel)
-    await loadOthers($)
-    if ((await read($, tab)) === 4) await loadBreakdown($)
-    try {
-      const opened = await $.ui.open({ id: PANE, title: 'token-watch', focus: true, closeOnEscape: true, columns: 80, rows: 24 })
-      if (opened.isPlaced === false) return { text: 'The token-watch pane is waiting: ' + (opened.reason ?? 'no reason given') }
-    } catch (error) {
-      // A refused open must not throw into the session: say why instead
-      return { text: 'The token-watch pane did not open: ' + (error instanceof Error ? error.message : String(error)) }
+    const args = e.args.trim().toLowerCase().split(/\s+/).join(' ')
+    if (args === 'recommend') return openRecommend($, recommendModel)
+    // The band setting answers with a toast, so the transcript gets no text
+    if (args === 'band on' || args === 'band off') {
+      await setBand($, args === 'band on')
+      return {}
     }
-    // Print nothing in the transcript
-    return {}
+    if (args === 'band') {
+      $.ui.toast((await read($, isBandOn)) ? BAND_IS_ON : BAND_IS_OFF)
+      return {}
+    }
+    const message = await togglePane($)
+    // Print nothing in the transcript, unless the pane did not open
+    return message === null ? {} : { text: message }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) return next(e)
+    if (e.props.hasSurvey || !(await read($, isBandOn))) return next(e)
     const now = await $.clock.now()
     const data = bandData(await read($, main), await read($, totals), await read($, limits), await read($, limitsAt), now)
     if (data === null) return next(e)
     const E = $.ui.resolve(e) as unknown as Els
     // What the mods after this one draw in the band stays, below this line
     const theirs = await next(e)
-    const line = bandEls(E, data, e.surface, e.props.bodyColumns)
+    const line = bandEls(E, data, e.surface, e.props.bodyColumns, { isOpen: await read($, isPaneOpen), onPress: () => pressPane($) })
     return (theirs ? E.Box({ flexDirection: 'column', children: [line, theirs] }) : line) as never
   })
+
+  // Esc and the close mark of the person: the band button reads details again
+  on('ui.close', { id: PANE }, async ($, e, next) => {
+    await markPane($, false)
+    return next(e)
+  }).catch(($, e, next) => next(e)) // The pane closes in all cases
 
   // Esc and the close mark of the person
   on('ui.close', { id: RECOMMEND_PANE }, async ($, e, next) => {

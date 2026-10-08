@@ -2,7 +2,7 @@
 
 Instructions for people and coding agents that work on this repo.
 
-`token-watch` is a Claude Code mod: a plugin with one hooks module of TypeScript function hooks, which Claude Code loads in its own process. It installs no hooks in `settings.json`. It shows the token use, the plan limits and the cache temperature of the sessions on this Mac. The mod only observes. No hook blocks, changes or delays a request, a tool call or a prompt. The mod calls a model only for `/token-watch recommend`, after the person confirms the cost in a dialog, and it sends only the usage data that the tabs show. It draws a band above the prompt, a pane with five tabs (Now, Session, Week, Why, Help) that the command `/token-watch` opens, and the dialog of `/token-watch recommend`. It runs in the Claude Code CLI and in the Code tab of the desktop app.
+`token-watch` is a Claude Code mod: a plugin with one hooks module of TypeScript function hooks, which Claude Code loads in its own process. It installs no hooks in `settings.json`. It shows the token use, the plan limits and the cache temperature of the sessions on this Mac. The mod only observes. No hook blocks, changes or delays a request, a tool call or a prompt. The mod calls a model only for `/token-watch recommend`, after the person confirms the cost in a dialog, and it sends only the usage data that the tabs show. It draws a band above the prompt with a button that opens and closes the pane, a pane with five tabs (Now, Session, Week, Why, Help) that the command `/token-watch` also opens and closes, and the dialog of `/token-watch recommend`. `/token-watch band off` and `/token-watch band on` hide and show the band in all sessions, through the store key `settings`. It runs in the Claude Code CLI and in the Code tab of the desktop app.
 
 ## This repo is public
 
@@ -33,7 +33,7 @@ Tests are in `tests/` and run with `claude plugin test`:
 
 - `format`, `prices`, `recommend`, `tally`, `temperature` and `view` each have one test file for the module of the same name. `view.test.ts` uses a stub element table.
 - `hooks.test.ts` and `draw.test.ts` run `register.ts` in the test engine. `hooks.test.ts` covers state, store, timers and hook results. `draw.test.ts` mounts the band and the pane on the terminal and on the desktop.
-- `helpers.ts` stubs each mods API call and keeps the store in a Map. It stubs `$.model.complete`, so no test makes a real model call. A test sets the result of the stub with the option `modelResult`.
+- `helpers.ts` stubs each mods API call, keeps the store in a Map, tracks the open panes by id (the option `paneShown: false` stands for a covered pane) and keeps each toast. It stubs `$.model.complete`, so no test makes a real model call. A test sets the result of the stub with the option `modelResult`.
 
 ## Commands
 
@@ -41,6 +41,7 @@ Tests are in `tests/` and run with `claude plugin test`:
 - `make typecheck`: the TypeScript check. It has known errors and is not in `verify` yet. It needs `tsconfig.json` and `.claude-plugin/types/`. Claude Code generates both when the mod loads, and git ignores both, so a fresh checkout or worktree can fail for that reason.
 - `make prices`: runs `node scripts/prices.mjs`. It reads the models in the store of the mod (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/store/token-watch_*.json`) and prints each one as `exact`, `fallback from <key>`, `unpriced` or `alias, priced as <key>` (the price model of `/token-watch recommend`, which needs no key), then a summary. It informs, always exits 0 and is not in `verify`. Run it when a pane shows `unpriced` or `≈`, then add the new keys to `PRICES` in `hooks/prices.ts`.
 - `claude --plugin-dir .`: runs the mod in one session.
+- When `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` already loads a clone, `--plugin-dir` loads a second copy. Run a worktree for one session with `claude --settings '{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"<path>"}}'`. A shell variable does not work: the settings file replaces it in a live session, although `claude plugin list` shows the shell value.
 
 ## Rules of the mods API
 

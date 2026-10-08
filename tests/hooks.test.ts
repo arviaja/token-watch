@@ -9,7 +9,7 @@ const RECENT = { ...OLD, key: 'run:recent:1', sessionId: 'recent', updatedAt: T0
 test('session start registers the command, deletes old and bad snapshots and reads the limits', async ($, on) => {
   const h = harness(on, { store: { 'run:old:1': OLD, 'run:recent:1': RECENT, 'run:bad:1': 'garbage', 'other-key': 1 } })
   await start($)
-  expect(h.registered[0]).toMatchObject({ name: 'token-watch', immediate: true, argumentHint: '[recommend]' })
+  expect(h.registered[0]).toMatchObject({ name: 'token-watch', immediate: true, argumentHint: '[recommend | band on | band off]' })
   await h.clock.advance(5_000)
   await h.clock.settle()
   expect(h.store.has('run:old:1')).toBe(false)
@@ -369,4 +369,73 @@ test('a reload of the module while the call runs turns the dialog from asking in
   expect(await ui.find({ type: 'Text', text: 'Asking sonnet…' })).toBeUndefined()
   release()
   await asking
+})
+
+const BAND_OFF = 'Band off in all sessions on this Mac. The mod still counts. /token-watch band on shows it again.'
+
+test('band off and band on write the setting of all sessions to the store and answer with a toast, not with text', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  expect(await $.command.run({ command: 'token-watch', args: 'band off' })).toEqual({})
+  expect(h.store.get('settings')).toEqual({ band: 'off' })
+  expect(h.toasts.at(-1)).toBe(BAND_OFF)
+  // Case and spaces do not matter
+  expect(await $.command.run({ command: 'token-watch', args: ' Band  ON ' })).toEqual({})
+  expect(h.store.get('settings')).toEqual({ band: 'on' })
+  expect(h.toasts.at(-1)).toBe('Band on in all sessions on this Mac.')
+  // The band setting opens no pane
+  expect(h.opened).toEqual([])
+})
+
+test('band without on or off names the state in a toast', async ($, on) => {
+  const h = harness(on, { store: { settings: { band: 'off' } } })
+  await start($)
+  expect(await $.command.run({ command: 'token-watch', args: 'band' })).toEqual({})
+  expect(h.toasts.at(-1)).toBe('The band is off. /token-watch band on shows it.')
+  await $.command.run({ command: 'token-watch', args: 'band on' })
+  await $.command.run({ command: 'token-watch', args: 'band' })
+  expect(h.toasts.at(-1)).toBe('The band is on. /token-watch band off hides it.')
+})
+
+test('the setting keeps the other values of the settings key, and the clean-up and the list of the other sessions leave the key alone', async ($, on) => {
+  const h = harness(on, { store: { settings: { band: 'off', other: 1 } } })
+  await start($)
+  await h.clock.advance(5_000)
+  await h.clock.settle()
+  expect(h.store.get('settings')).toEqual({ band: 'off', other: 1 })
+  await $.command.run({ command: 'token-watch', args: 'band on' })
+  expect(h.store.get('settings')).toEqual({ band: 'on', other: 1 })
+  await $.command.run({ command: 'token-watch', args: '' })
+  expect(h.store.has('settings')).toBe(true)
+})
+
+test('a failed write of the setting changes nothing and says why in a toast', async ($, on) => {
+  const h = harness(on, { failStoreSet: true })
+  await start($)
+  expect(await $.command.run({ command: 'token-watch', args: 'band off' })).toEqual({})
+  expect(h.store.has('settings')).toBe(false)
+  expect(h.toasts.at(-1)).toMatch(/^The band setting was not saved: /)
+  await $.command.run({ command: 'token-watch', args: 'band' })
+  expect(h.toasts.at(-1)).toBe('The band is on. /token-watch band off hides it.')
+})
+
+test('with the band off the mod still counts each request and writes the snapshot', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await $.command.run({ command: 'token-watch', args: 'band off' })
+  await step($, FABLE)
+  await end($)
+  expect(snapshotIn(h.store).hours['2026-10-06T12']['claude-fable-5-1|main'].requests).toBe(1)
+})
+
+test('the command closes the pane when it shows, and opens it again after that', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  expect(await $.command.run({ command: 'token-watch', args: '' })).toEqual({})
+  expect(h.opened).toHaveLength(1)
+  expect(await $.command.run({ command: 'token-watch', args: '' })).toEqual({})
+  expect(h.closed).toMatchObject([{ id: 'token-watch' }])
+  expect(h.opened).toHaveLength(1)
+  await $.command.run({ command: 'token-watch', args: '' })
+  expect(h.opened).toHaveLength(2)
 })

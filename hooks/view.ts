@@ -32,6 +32,14 @@ const BAND_TUBE_CELLS = 10
 const BAND_DESKTOP_TUBE_CELLS = 12
 // The band keeps these free cells, a margin for the width estimate of the proportional font on the desktop
 const BAND_MARGIN = 4
+// The pane button at the right end of the band: 2 cells of gap and `[ details ]`, the longer of its two labels.
+// The band keeps these cells, so the button stays when parts of the text leave
+const BAND_BUTTON_GAP = 2
+const BAND_BUTTON_CELLS = BAND_BUTTON_GAP + '[ details ]'.length
+// The labels of the pane button, closed and open
+const PANE_BUTTON_LABELS = { closed: 'details', open: 'close' } as const
+// The key that presses the pane button once the band has the focus. A letter, because a bare digit in an empty prompt presses a band button
+const PANE_BUTTON_HOTKEY = 't'
 // The font table of desktopCells matched the band text of one screenshot to 0.1%, and of two more within 3%.
 // The band counts the desktop text 4% wider, so that it leaves out a part before the line wraps
 const DESKTOP_TEXT_FACTOR = 1.04
@@ -259,11 +267,20 @@ export function bandCells(text: string, isTubeShown: boolean, isOnDesktop: boole
   return tube + (isOnDesktop ? desktopCells(text) * DESKTOP_TEXT_FACTOR : cellCount(text))
 }
 
-export function bandEls(E: Els, d: BandData, surface: string = 'terminal', available?: number): unknown {
+// The pane button of the band: its label, and what a press runs
+export type PaneButton = { isOpen: boolean; onPress: () => unknown }
+
+// The focus of the band starts on the button, so ctrl+x tab and Enter press it. The key stays when the label changes, so the focus stays on it
+function paneButtonEl(E: Els, pane: PaneButton): unknown {
+  const label = pane.isOpen ? PANE_BUTTON_LABELS.open : PANE_BUTTON_LABELS.closed
+  return E.Box({ flexShrink: 0, marginLeft: BAND_BUTTON_GAP, children: [E.Button({ key: 'pane', label, hotkey: PANE_BUTTON_HOTKEY, autoFocus: true, dimColor: true, onPress: pane.onPress })] })
+}
+
+export function bandEls(E: Els, d: BandData, surface: string = 'terminal', available?: number, pane?: PaneButton): unknown {
   const isTubeShown = d.fraction !== null && d.stage !== null
   const isOnDesktop = isDesktop(E, surface)
   const onDesktop = isTubeShown && isOnDesktop
-  const budget = typeof available === 'number' && Number.isFinite(available) ? available - BAND_MARGIN : Infinity
+  const budget = typeof available === 'number' && Number.isFinite(available) ? available - BAND_MARGIN - (pane === undefined ? 0 : BAND_BUTTON_CELLS) : Infinity
   const widthOf = (segments: Segment[]) => bandCells(segments.map((s) => s.value).join(''), isTubeShown, isOnDesktop)
   const hasLimits = d.limits.length > 0
   const hasProjection = (part: BandPart) => d.limits.some((l) => PROJECTION_PARTS[l.kind] === part && l.projection !== '')
@@ -293,10 +310,11 @@ export function bandEls(E: Els, d: BandData, surface: string = 'terminal', avail
   const parts = segments.map((s) => text(E, s.value, s.style))
   if (isTubeShown && !onDesktop) parts.unshift(...tubeEls(E, d.fraction!, BAND_TUBE_CELLS, true, surface))
   const line = E.Text({ wrap: 'truncate-end', children: parts })
-  if (!onDesktop) return line
-  const tube = E.Box({ flexShrink: 0, children: tubeEls(E, d.fraction!, BAND_TUBE_CELLS, true, surface) })
+  const button = pane === undefined ? [] : [paneButtonEl(E, pane)]
   // A Text takes no flex props, so a Box with flexShrink 1 holds the text that is cut
-  return E.Box({ flexDirection: 'row', alignItems: 'center', children: [tube, E.Box({ flexShrink: 1, children: [line] })] })
+  if (!onDesktop) return button.length === 0 ? line : E.Box({ flexDirection: 'row', children: [E.Box({ flexShrink: 1, children: [line] }), ...button] })
+  const tube = E.Box({ flexShrink: 0, children: tubeEls(E, d.fraction!, BAND_TUBE_CELLS, true, surface) })
+  return E.Box({ flexDirection: 'row', alignItems: 'center', children: [tube, E.Box({ flexShrink: 1, children: [line] }), ...button] })
 }
 
 type TableOptions = { headerRows?: number; boldRows?: number[]; dimRows?: number[]; dimColumns?: number[]; selectedRows?: number[]; available?: number; dropOrder?: number[] }
@@ -577,6 +595,7 @@ const HELP: HelpSection[] = [
       { term: '→ 100% Sat 21:06', text: 'When the limit reaches 100% at the pace so far, if this is before its reset.' },
       { term: 'r31M w1.2M o120k', text: 'The costliest model: cache read, cache write, output.' },
       { term: '+1 model', text: 'More models ran. The Session tab lists all of them.' },
+      { term: '[ details ]', text: 'Opens this pane, and [ close ] closes it. In the terminal: ctrl+x tab, then Enter or t.' },
     ],
   },
   {
@@ -626,7 +645,8 @@ const HELP: HelpSection[] = [
   {
     title: '/token-watch',
     entries: [
-      { term: 'no argument', text: 'Opens this pane.' },
+      { term: 'no argument', text: 'Opens this pane, or closes it when it is open.' },
+      { term: 'band off, band on', text: 'Hides or shows the band in all sessions on this Mac. The mod still counts.' },
       { term: 'recommend', text: 'Asks a model for advice on this usage. A dialog shows the cost first, and the call runs only when you press Ask. On a subscription it counts against the plan allowance.' },
     ],
   },

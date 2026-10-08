@@ -34,20 +34,25 @@ export type Harness = {
   keyCalls: { count: number }
   // How often the mod read the agent list
   agentListCalls: { count: number }
+  // The text of each toast of the mod
+  toasts: string[]
 }
 
 // Stubs for every mods API call and event the mod passes on, with a store in a Map
 // Each failure is read at each call, so a test can turn it on after the start
 export type Failures = { sessionId?: boolean; agentList?: boolean }
 
-export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures; modelResult?: { deny: string } | { value: unknown } | (($: any) => Promise<{ deny: string } | { value: unknown }>); breakdown?: unknown } = {}): Harness {
+export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures; modelResult?: { deny: string } | { value: unknown } | (($: any) => Promise<{ deny: string } | { value: unknown }>); breakdown?: unknown } = {}): Harness {
   const store = new Map<string, unknown>(Object.entries(options.store ?? {}))
   const opened: unknown[] = []
   const registered: unknown[] = []
   const modelCalls: any[] = []
   const closed: unknown[] = []
   const keyCalls = { count: 0 }
-  let isPaneUp = false
+  const toasts: string[] = []
+  // The open panes by id, and whether each one is placed. An open adds its id, a close of the mod takes it away.
+  // paneShown false stands for a pane that another pane covers
+  const up = new Map<string, boolean>()
   const clock = mock.clock(on, { now: T0 })
   on('store.get', (_$: unknown, e: { key: string }) => ({ value: store.get(e.key) }))
   on('store.set', (_$: unknown, e: { key: string; value: unknown }) => {
@@ -82,14 +87,23 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
   })
   on('ui.open', (_$: unknown, e: unknown) => {
     if (options.denyOpen) return { deny: 'no pane' }
-    if (options.openResult) return options.openResult
+    if (options.openResult) {
+      // A waiting pane is up, but not placed
+      if ('value' in options.openResult) up.set((e as { id: string }).id, (options.openResult.value as { isPlaced?: boolean }).isPlaced !== false)
+      return options.openResult
+    }
     opened.push(e)
-    isPaneUp = true
+    up.set((e as { id: string }).id, true)
     return { value: { isPlaced: true } }
   })
-  on('ui.panes', () => ({ value: isPaneUp ? [{ id: 'token-watch', title: 'token-watch', isShown: true, isFocused: true, isPlaced: true }] : [] }))
+  on('ui.panes', () => ({ value: [...up].map(([id, isPlaced]) => ({ id, title: id, isShown: isPlaced && options.paneShown !== false, isFocused: true, isPlaced })) }))
   on('ui.close', (_$: unknown, e: unknown) => {
     closed.push(e)
+    up.delete((e as { id: string }).id)
+    return { value: undefined }
+  })
+  on('ui.toast', (_$: unknown, e: { text: string }) => {
+    toasts.push(e.text)
     return { value: undefined }
   })
   // The stub of $.model.complete. It stands for the engine, so no request leaves the test
@@ -121,7 +135,7 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
     yield { kind: 'text', index: 0, text: 'ok' }
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: nextUsage }
   })
-  return { store, clock, opened, registered, modelCalls, closed, keyCalls, agentListCalls }
+  return { store, clock, opened, registered, modelCalls, closed, keyCalls, agentListCalls, toasts }
 }
 
 export async function start($: any) {

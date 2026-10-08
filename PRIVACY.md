@@ -21,10 +21,11 @@ To count tokens, the mod hooks each model request. Claude Code passes the hook t
 ## What the mod stores
 
 - One snapshot for each conversation in the mod store of Claude Code, `~/.claude/plugins/store/` on your computer. A snapshot holds the session ID, the repo folder name, the model, timestamps, the context size, the plan limit readings and the token counts and estimated costs for each hour, model and scope.
+- The band setting, `on` or `off`, in the same store under the key `settings`. It holds no other data.
 - The context breakdown stays in the memory of the session. The mod does not write it to disk.
 - The prompt and the reply of `/token-watch recommend` stay in the memory of the session while the dialog is open. The mod does not write them to disk or into the conversation. The token counts and the estimated cost of the call go into the snapshot, under the scope `recommend`.
 
-The mod deletes snapshots older than 8 days when a session that runs the mod starts. To delete all data now, delete the files `~/.claude/plugins/store/token-watch_*.json`.
+The mod deletes snapshots older than 8 days when a session that runs the mod starts. To delete all data now, delete the files `~/.claude/plugins/store/token-watch_*.json`. An uninstall of the mod does not delete them.
 
 ## What the mod sends
 

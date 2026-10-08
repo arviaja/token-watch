@@ -95,6 +95,10 @@ declare module 'claude-code' {
       breakdown: Breakdown | null
       others: Snapshot[]
       recommend: Recommend | null
+      // The copy of this session of the band setting in the store. The tick reads the store again
+      isBandOn: boolean
+      // The pane of /token-watch is open. The band button reads it for its label
+      isPaneOpen: boolean
     }
   }
 }
