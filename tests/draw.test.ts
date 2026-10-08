@@ -125,18 +125,20 @@ test('the band keeps one line at a narrow and at a wide width with three models,
   await step($, OPUS)
   await step($, SONNET)
   for (const surface of SURFACES) {
-    for (const columns of [60, 80, 100, 120, 160]) {
+    for (const columns of [60, 70, 80, 100, 110, 120, 130, 160]) {
       const where = surface + ' at ' + columns
       const ui = await $.ui.mount(bandAt(columns, surface))
       const { text, cells } = await bandLine(ui, surface)
-      expect(cells, where).toBeLessThanOrEqual(columns - 4)
+      // 4 free cells, and 13 for the pane button
+      expect(cells, where).toBeLessThanOrEqual(columns - 4 - 13)
       expect(text, where).toContain('LIVE in turn')
       // Only the model with the highest cost, then the count of the others
       expect(text.includes('fable-5-1 r'), where).toBe(false)
       expect(text.includes('sonnet-5-5 r'), where).toBe(false)
       // On the terminal the tube and the label take 40 cells, the limits 20, the weekly projection 17, the model 30 and the count of the others 10.
-      // On the desktop the same parts take 33.44, 16.03, 13.26, 22.93 and 8.59 cells. The weekly projection stays longer than the model
-      const from = surface === 'terminal' ? { limits: 80, projection: 100, model: 120, more: 160 } : { limits: 60, projection: 80, model: 100, more: 100 }
+      // On the desktop the same parts take 33.44, 16.03, 13.26, 22.93 and 8.59 cells. The pane button keeps 13 cells on both surfaces.
+      // The weekly projection stays longer than the model
+      const from = surface === 'terminal' ? { limits: 80, projection: 100, model: 130, more: 160 } : { limits: 70, projection: 80, model: 110, more: 120 }
       expect(text.includes('week 41%'), where).toBe(columns >= from.limits)
       expect(text.includes(LIMITS_TEXT), where).toBe(columns >= from.projection)
       expect(text.includes('opus-5-5 r289k w43.1k o1.1k'), where).toBe(columns >= from.model)
@@ -164,19 +166,19 @@ test('the band shows when both limits reach 100%, drops the 5-hour projection fi
   const weekOnly = 'week 41%' + WEEK_FULL + ' · 5h 62%'
   const model = 'fable-5-1 r400k w10.0k o1.0k'
   // With the HOT label, both projections take 112 cells on the terminal and the model 31 more.
-  // On the desktop they take 91.48 cells and the model 23.40 more, so the same parts stay at smaller widths
+  // On the desktop they take 91.48 cells and the model 23.40 more, so the same parts stay at smaller widths. The pane button keeps 13 cells on both surfaces
   const cases: Record<string, [number, string][]> = {
     terminal: [
       [160, '| ' + both + ' | ' + model],
-      [120, '| ' + both],
-      [100, '| ' + weekOnly],
-      [90, '| week 41% · 5h 62%'],
+      [130, '| ' + both],
+      [115, '| ' + weekOnly],
+      [100, '| week 41% · 5h 62%'],
     ],
     desktop: [
       [160, '| ' + both + ' | ' + model],
-      [100, '| ' + both],
-      [90, '| ' + weekOnly],
-      [70, '| week 41% · 5h 62%'],
+      [110, '| ' + both],
+      [100, '| ' + weekOnly],
+      [85, '| week 41% · 5h 62%'],
     ],
   }
   for (const surface of SURFACES) {
@@ -184,7 +186,7 @@ test('the band shows when both limits reach 100%, drops the 5-hour projection fi
       const ui = await $.ui.mount(bandAt(columns, surface))
       const { text, cells } = await bandLine(ui, surface)
       expect(text.endsWith(end), surface + ' at ' + columns + ': ' + text).toBe(true)
-      expect(cells, surface + ' at ' + columns).toBeLessThanOrEqual(columns - 4)
+      expect(cells, surface + ' at ' + columns).toBeLessThanOrEqual(columns - 4 - 13)
       await ui.unmount()
     }
   }
@@ -277,6 +279,86 @@ test('the band passes while a survey holds it, and draws nothing without data', 
   await start($)
   ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, hasSurvey: true }, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: 'week 41% · 5h 12%' })).toBeUndefined()
+})
+
+test('band off hides the band in this session at once and in another session at its next tick, and band on shows it again, on both surfaces', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  await complete($)
+  const isBandDrawn = async (surface: string) => {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    const isDrawn = (await ui.find({ type: 'Text', text: 'HOT' })) !== undefined
+    // What Claude Code draws in the band stays in both cases
+    expect(await ui.find({ type: 'Text', text: 'drawn by Claude Code' }), surface).toBeDefined()
+    await ui.unmount()
+    return isDrawn
+  }
+  for (const surface of SURFACES) expect(await isBandDrawn(surface), surface).toBe(true)
+  await $.command.run({ command: 'token-watch', args: 'band off' })
+  for (const surface of SURFACES) expect(await isBandDrawn(surface), surface).toBe(false)
+  // Another session turns the band on. This session reads the store at its next tick
+  h.store.set('settings', { band: 'on' })
+  for (const surface of SURFACES) expect(await isBandDrawn(surface), surface).toBe(false)
+  await h.clock.advance(15_000)
+  await h.clock.settle()
+  for (const surface of SURFACES) expect(await isBandDrawn(surface), surface).toBe(true)
+})
+
+test('a session that starts with the band off draws no band, and the command still opens the pane', async ($, on) => {
+  const h = harness(on, { store: { settings: { band: 'off' } } })
+  await start($)
+  await step($, FABLE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'LIVE' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+  await ui.unmount()
+  expect(await $.command.run({ command: 'token-watch', args: '' })).toEqual({})
+  expect(h.opened).toHaveLength(1)
+})
+
+test('the band button opens the pane and closes it, and its label follows the pane, on both surfaces', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  await complete($)
+  const buttonOf = async (surface: string) => {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    const button = (await ui.findAll({ type: 'Button' })).find((b: any) => b.props.key === 'pane')
+    return { ui, button }
+  }
+  for (const surface of SURFACES) {
+    let { ui, button } = await buttonOf(surface)
+    // A bracketed button: not plain, dimmed, a letter as hotkey, and the first focus of the band
+    expect(button?.props, surface).toMatchObject({ label: 'details', hotkey: 't', autoFocus: true, dimColor: true })
+    expect(button?.props.plain, surface).toBeUndefined()
+    const opened = h.opened.length
+    await ui.press({ key: 'pane' })
+    expect(h.opened, surface).toHaveLength(opened + 1)
+    expect(h.opened.at(-1), surface).toMatchObject({ id: 'token-watch', focus: true, closeOnEscape: true })
+    await ui.unmount()
+    ;({ ui, button } = await buttonOf(surface))
+    expect(button?.props.label, surface).toBe('close')
+    const closed = h.closed.length
+    await ui.press({ key: 'pane' })
+    expect(h.closed, surface).toHaveLength(closed + 1)
+    await ui.unmount()
+    ;({ ui, button } = await buttonOf(surface))
+    expect(button?.props.label, surface).toBe('details')
+    await ui.unmount()
+  }
+  // A press is no slash command: no toast, and nothing for the transcript
+  expect(h.toasts).toEqual([])
+})
+
+test('a press of the band button says in a toast why the pane did not open', async ($, on) => {
+  const h = harness(on, { openResult: { deny: 'no pane slot' } })
+  await start($)
+  await step($, FABLE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'pane' })
+  expect(h.toasts.at(-1)).toMatch(/^The token-watch pane did not open:/)
+  expect(h.toasts.at(-1)).toContain('no pane slot')
 })
 
 test('the command opens the pane with focus and Esc, and prints nothing', async ($, on) => {

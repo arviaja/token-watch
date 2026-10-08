@@ -17,6 +17,7 @@ export const HELP_SECTIONS: { title: string; rows: [string, string][] }[] = [
       ['→ 100% Sat 21:06', 'When the limit reaches 100% at the pace so far, if this is before its reset.'],
       ['r31M w1.2M o120k', 'The costliest model: cache read, cache write, output.'],
       ['+1 model', 'More models ran. The Session tab lists all of them.'],
+      ['[ details ]', 'Opens this pane, and [ close ] closes it. In the terminal: ctrl+x tab, then Enter or t.'],
     ],
   },
   {
@@ -68,7 +69,8 @@ export const HELP_SECTIONS: { title: string; rows: [string, string][] }[] = [
   {
     title: '/token-watch',
     rows: [
-      ['no argument', 'Opens this pane.'],
+      ['no argument', 'Opens this pane, or closes it when it shows.'],
+      ['band off, band on', 'Hides or shows the band in all sessions on this Mac. The mod still counts.'],
       ['recommend', 'Asks a model for advice on this usage. A dialog shows the cost first, and the call runs only when you press Ask. On a subscription it counts against the plan allowance.'],
     ],
   },

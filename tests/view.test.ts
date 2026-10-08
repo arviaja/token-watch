@@ -2167,7 +2167,7 @@ test('the help tab has the sections, the terms and the explanations of the appro
 
 test('a term of the help tab is as long as a table column leaves, so that the explanation starts at one column', async () => {
   for (const [term] of HELP_ROWS) expect(Array.from(term).length, term).toBeLessThanOrEqual(21)
-  expect(HELP_ROWS).toHaveLength(36)
+  expect(HELP_ROWS).toHaveLength(38)
   expect(HELP_HEADINGS).toEqual(['Band above the prompt', '1 Now', '2 Session', '3 Week', '4 Why', 'Costs', '/token-watch'])
 })
 
@@ -2307,7 +2307,11 @@ test('the terms of the help tab are the labels that the band and the other tabs 
     { kind: 'five_hour', percentUsed: 12, resetsAt: new Date(T0 + 280 * MIN).toISOString() },
   ]
   const band = shape(flat(bandEls(E, bandData(main, totals, projected, T0, T0 + 13 * MIN)!)))
-  for (const term of terms('Band above the prompt').slice(6)) expect(band, term).toContain(shape(term))
+  const bandTerms = terms('Band above the prompt').slice(6)
+  for (const term of bandTerms.slice(0, -1)) expect(band, term).toContain(shape(term))
+  // The last term is the pane button, which the terminal draws as `[ label ]`
+  const button = all(bandEls(E, bandData(main, totals, projected, T0, T0 + 13 * MIN)!, 'terminal', 120, { isOpen: false, onPress: () => {} }), 'Button')[0]
+  expect(bandTerms.at(-1)).toBe('[ ' + button.props.label + ' ]')
   expect(terms('Band above the prompt').slice(1, 6)).toEqual(HELP_STAGES.map(([stage]) => stage))
   // Tab 1: the header cells, and the selected row
   const now = nowEls(E, [row({ isCurrent: true })], T0)

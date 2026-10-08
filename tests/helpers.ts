@@ -34,6 +34,8 @@ export type Harness = {
   keyCalls: { count: number }
   // How often the mod read the agent list
   agentListCalls: { count: number }
+  // The text of each toast of the mod
+  toasts: string[]
 }
 
 // Stubs for every mods API call and event the mod passes on, with a store in a Map
@@ -47,7 +49,9 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
   const modelCalls: any[] = []
   const closed: unknown[] = []
   const keyCalls = { count: 0 }
-  let isPaneUp = false
+  const toasts: string[] = []
+  // The ids of the open panes. An open adds its id, a close of the mod takes it away
+  const up = new Set<string>()
   const clock = mock.clock(on, { now: T0 })
   on('store.get', (_$: unknown, e: { key: string }) => ({ value: store.get(e.key) }))
   on('store.set', (_$: unknown, e: { key: string; value: unknown }) => {
@@ -84,12 +88,17 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
     if (options.denyOpen) return { deny: 'no pane' }
     if (options.openResult) return options.openResult
     opened.push(e)
-    isPaneUp = true
+    up.add((e as { id: string }).id)
     return { value: { isPlaced: true } }
   })
-  on('ui.panes', () => ({ value: isPaneUp ? [{ id: 'token-watch', title: 'token-watch', isShown: true, isFocused: true, isPlaced: true }] : [] }))
+  on('ui.panes', () => ({ value: [...up].map((id) => ({ id, title: id, isShown: true, isFocused: true, isPlaced: true })) }))
   on('ui.close', (_$: unknown, e: unknown) => {
     closed.push(e)
+    up.delete((e as { id: string }).id)
+    return { value: undefined }
+  })
+  on('ui.toast', (_$: unknown, e: { text: string }) => {
+    toasts.push(e.text)
     return { value: undefined }
   })
   // The stub of $.model.complete. It stands for the engine, so no request leaves the test
@@ -121,7 +130,7 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
     yield { kind: 'text', index: 0, text: 'ok' }
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: nextUsage }
   })
-  return { store, clock, opened, registered, modelCalls, closed, keyCalls, agentListCalls }
+  return { store, clock, opened, registered, modelCalls, closed, keyCalls, agentListCalls, toasts }
 }
 
 export async function start($: any) {

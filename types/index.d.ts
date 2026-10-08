@@ -78,6 +78,9 @@ export type Recommend = {
   counts: Counts | null
 }
 
+// The settings that apply to all sessions on this Mac, in the store under the key `settings`. band: off hides the band, and a missing value shows it
+export type Settings = { band?: 'on' | 'off' }
+
 declare module 'claude-code' {
   interface PluginState {
     'token-watch': {
@@ -95,6 +98,10 @@ declare module 'claude-code' {
       breakdown: Breakdown | null
       others: Snapshot[]
       recommend: Recommend | null
+      // The copy of this session of the band setting in the store. The tick reads the store again
+      isBandOn: boolean
+      // The pane of /token-watch is open. The band button reads it for its label
+      isPaneOpen: boolean
     }
   }
 }
