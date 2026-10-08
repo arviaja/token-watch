@@ -33,15 +33,15 @@ const BAND_DESKTOP_TUBE_CELLS = 12
 // The band keeps these free cells, a margin for the width estimate of the proportional font on the desktop
 const BAND_MARGIN = 4
 // The two buttons at the right end of the band: 2 cells of gap, `[ details ]` (the longer label of the pane button), 2 cells of gap and the hide button `×`.
-// The band keeps these cells, so the buttons stay when parts of the text leave
+// The band keeps these cells, so the buttons stay when parts of the text leave. On the desktop the native `details` button without a hotkey
+// takes about 6.5 cells of the code font and `×` about 1, measured on a screenshot of 2026-10-08, so the same 16 cells hold them
 const BAND_BUTTON_GAP = 2
 const HIDE_GLYPH = '×'
 const BAND_BUTTON_CELLS = BAND_BUTTON_GAP + '[ details ]'.length + BAND_BUTTON_GAP + HIDE_GLYPH.length
-// The hide button is the close control of the band. The desktop draws its own close mark and reads the label as the accessible name
-const HIDE_LABEL_DESKTOP = 'Hide the band in this session'
 // The labels of the pane button, closed and open
 const PANE_BUTTON_LABELS = { closed: 'details', open: 'close' } as const
-// The key that presses the pane button once the band has the focus. A letter, because a bare digit in an empty prompt presses a band button
+// The key that presses the pane button once the band has the focus, on the terminal only: the desktop draws a hotkey as a badge that takes width, and a click presses the button there.
+// A letter, because a bare digit in an empty prompt presses a band button
 const PANE_BUTTON_HOTKEY = 't'
 // The font table of desktopCells matched the band text of one screenshot to 0.1%, and of two more within 3%.
 // The band counts the desktop text 4% wider, so that it leaves out a part before the line wraps
@@ -277,8 +277,9 @@ export type BandButtons = { isPaneOpen: boolean; onPane: () => unknown; onHide: 
 // The key of the pane button stays when its label changes, so the focus stays on it
 function bandButtonEls(E: Els, buttons: BandButtons, isOnDesktop: boolean): unknown[] {
   const label = buttons.isPaneOpen ? PANE_BUTTON_LABELS.open : PANE_BUTTON_LABELS.closed
-  const pane = E.Button({ key: 'pane', label, hotkey: PANE_BUTTON_HOTKEY, autoFocus: true, dimColor: true, onPress: buttons.onPane })
-  const hide = E.Button({ key: 'band-hide', label: isOnDesktop ? HIDE_LABEL_DESKTOP : HIDE_GLYPH, role: 'dismiss', plain: true, dimColor: true, onPress: buttons.onHide })
+  const pane = E.Button({ key: 'pane', label, ...(isOnDesktop ? {} : { hotkey: PANE_BUTTON_HOTKEY }), autoFocus: true, dimColor: true, onPress: buttons.onPane })
+  // The desktop draws no close mark for the dismiss role in the band: it draws the label, so the label is the glyph on both surfaces
+  const hide = E.Button({ key: 'band-hide', label: HIDE_GLYPH, role: 'dismiss', plain: true, dimColor: true, onPress: buttons.onHide })
   return [pane, hide].map((button) => E.Box({ flexShrink: 0, marginLeft: BAND_BUTTON_GAP, children: [button] }))
 }
 
