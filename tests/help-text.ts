@@ -18,6 +18,7 @@ export const HELP_SECTIONS: { title: string; rows: [string, string][] }[] = [
       ['r31M w1.2M o120k', 'The costliest model: cache read, cache write, output.'],
       ['+1 model', 'More models ran. The Session tab lists all of them.'],
       ['[ details ]', 'Opens this pane, and [ close ] closes it. In the terminal: ctrl+x tab, then Enter or t.'],
+      ['×', 'Hides the band in this session. /token-watch band on shows it again. In the terminal: ctrl+x tab, Tab, Enter.'],
     ],
   },
   {
@@ -70,7 +71,7 @@ export const HELP_SECTIONS: { title: string; rows: [string, string][] }[] = [
     title: '/token-watch',
     rows: [
       ['no argument', 'Opens this pane, or closes it when it is open.'],
-      ['band off, band on', 'Hides or shows the band in all sessions on this Mac. The mod still counts.'],
+      ['band off, band on', 'Hides or shows the band in all sessions on this Mac. band on also undoes ×. The mod still counts.'],
       ['recommend', 'Asks a model for advice on this usage. A dialog shows the cost first, and the call runs only when you press Ask. On a subscription it counts against the plan allowance.'],
     ],
   },

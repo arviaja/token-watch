@@ -32,10 +32,13 @@ const BAND_TUBE_CELLS = 10
 const BAND_DESKTOP_TUBE_CELLS = 12
 // The band keeps these free cells, a margin for the width estimate of the proportional font on the desktop
 const BAND_MARGIN = 4
-// The pane button at the right end of the band: 2 cells of gap and `[ details ]`, the longer of its two labels.
-// The band keeps these cells, so the button stays when parts of the text leave
+// The two buttons at the right end of the band: 2 cells of gap, `[ details ]` (the longer label of the pane button), 2 cells of gap and the hide button `×`.
+// The band keeps these cells, so the buttons stay when parts of the text leave
 const BAND_BUTTON_GAP = 2
-const BAND_BUTTON_CELLS = BAND_BUTTON_GAP + '[ details ]'.length
+const HIDE_GLYPH = '×'
+const BAND_BUTTON_CELLS = BAND_BUTTON_GAP + '[ details ]'.length + BAND_BUTTON_GAP + HIDE_GLYPH.length
+// The hide button is the close control of the band. The desktop draws its own close mark and reads the label as the accessible name
+const HIDE_LABEL_DESKTOP = 'Hide the band in this session'
 // The labels of the pane button, closed and open
 const PANE_BUTTON_LABELS = { closed: 'details', open: 'close' } as const
 // The key that presses the pane button once the band has the focus. A letter, because a bare digit in an empty prompt presses a band button
@@ -267,20 +270,23 @@ export function bandCells(text: string, isTubeShown: boolean, isOnDesktop: boole
   return tube + (isOnDesktop ? desktopCells(text) * DESKTOP_TEXT_FACTOR : cellCount(text))
 }
 
-// The pane button of the band: its label, and what a press runs
-export type PaneButton = { isOpen: boolean; onPress: () => unknown }
+// The buttons of the band: the label of the pane button, what a press of it runs, and what the hide button runs
+export type BandButtons = { isPaneOpen: boolean; onPane: () => unknown; onHide: () => unknown }
 
-// The focus of the band starts on the button, so ctrl+x tab and Enter press it. The key stays when the label changes, so the focus stays on it
-function paneButtonEl(E: Els, pane: PaneButton): unknown {
-  const label = pane.isOpen ? PANE_BUTTON_LABELS.open : PANE_BUTTON_LABELS.closed
-  return E.Box({ flexShrink: 0, marginLeft: BAND_BUTTON_GAP, children: [E.Button({ key: 'pane', label, hotkey: PANE_BUTTON_HOTKEY, autoFocus: true, dimColor: true, onPress: pane.onPress })] })
+// The buttons at the right end. The focus of the band starts on the pane button, so ctrl+x tab and Enter press it, and Tab moves to the hide button.
+// The key of the pane button stays when its label changes, so the focus stays on it
+function bandButtonEls(E: Els, buttons: BandButtons, isOnDesktop: boolean): unknown[] {
+  const label = buttons.isPaneOpen ? PANE_BUTTON_LABELS.open : PANE_BUTTON_LABELS.closed
+  const pane = E.Button({ key: 'pane', label, hotkey: PANE_BUTTON_HOTKEY, autoFocus: true, dimColor: true, onPress: buttons.onPane })
+  const hide = E.Button({ key: 'band-hide', label: isOnDesktop ? HIDE_LABEL_DESKTOP : HIDE_GLYPH, role: 'dismiss', plain: true, dimColor: true, onPress: buttons.onHide })
+  return [pane, hide].map((button) => E.Box({ flexShrink: 0, marginLeft: BAND_BUTTON_GAP, children: [button] }))
 }
 
-export function bandEls(E: Els, d: BandData, surface: string = 'terminal', available?: number, pane?: PaneButton): unknown {
+export function bandEls(E: Els, d: BandData, surface: string = 'terminal', available?: number, buttons?: BandButtons): unknown {
   const isTubeShown = d.fraction !== null && d.stage !== null
   const isOnDesktop = isDesktop(E, surface)
   const onDesktop = isTubeShown && isOnDesktop
-  const budget = typeof available === 'number' && Number.isFinite(available) ? available - BAND_MARGIN - (pane === undefined ? 0 : BAND_BUTTON_CELLS) : Infinity
+  const budget = typeof available === 'number' && Number.isFinite(available) ? available - BAND_MARGIN - (buttons === undefined ? 0 : BAND_BUTTON_CELLS) : Infinity
   const widthOf = (segments: Segment[]) => bandCells(segments.map((s) => s.value).join(''), isTubeShown, isOnDesktop)
   const hasLimits = d.limits.length > 0
   const hasProjection = (part: BandPart) => d.limits.some((l) => PROJECTION_PARTS[l.kind] === part && l.projection !== '')
@@ -310,11 +316,12 @@ export function bandEls(E: Els, d: BandData, surface: string = 'terminal', avail
   const parts = segments.map((s) => text(E, s.value, s.style))
   if (isTubeShown && !onDesktop) parts.unshift(...tubeEls(E, d.fraction!, BAND_TUBE_CELLS, true, surface))
   const line = E.Text({ wrap: 'truncate-end', children: parts })
-  const button = pane === undefined ? [] : [paneButtonEl(E, pane)]
+  // A Box that grows between the text and the buttons puts the buttons at the right end
+  const right = buttons === undefined ? [] : [E.Box({ flexGrow: 1, children: [] }), ...bandButtonEls(E, buttons, isOnDesktop)]
   // A Text takes no flex props, so a Box with flexShrink 1 holds the text that is cut
-  if (!onDesktop) return button.length === 0 ? line : E.Box({ flexDirection: 'row', children: [E.Box({ flexShrink: 1, children: [line] }), ...button] })
+  if (!onDesktop) return right.length === 0 ? line : E.Box({ flexDirection: 'row', children: [E.Box({ flexShrink: 1, children: [line] }), ...right] })
   const tube = E.Box({ flexShrink: 0, children: tubeEls(E, d.fraction!, BAND_TUBE_CELLS, true, surface) })
-  return E.Box({ flexDirection: 'row', alignItems: 'center', children: [tube, E.Box({ flexShrink: 1, children: [line] }), ...button] })
+  return E.Box({ flexDirection: 'row', alignItems: 'center', children: [tube, E.Box({ flexShrink: 1, children: [line] }), ...right] })
 }
 
 type TableOptions = { headerRows?: number; boldRows?: number[]; dimRows?: number[]; dimColumns?: number[]; selectedRows?: number[]; available?: number; dropOrder?: number[] }
@@ -596,6 +603,7 @@ const HELP: HelpSection[] = [
       { term: 'r31M w1.2M o120k', text: 'The costliest model: cache read, cache write, output.' },
       { term: '+1 model', text: 'More models ran. The Session tab lists all of them.' },
       { term: '[ details ]', text: 'Opens this pane, and [ close ] closes it. In the terminal: ctrl+x tab, then Enter or t.' },
+      { term: '×', text: 'Hides the band in this session. /token-watch band on shows it again. In the terminal: ctrl+x tab, Tab, Enter.' },
     ],
   },
   {
@@ -646,7 +654,7 @@ const HELP: HelpSection[] = [
     title: '/token-watch',
     entries: [
       { term: 'no argument', text: 'Opens this pane, or closes it when it is open.' },
-      { term: 'band off, band on', text: 'Hides or shows the band in all sessions on this Mac. The mod still counts.' },
+      { term: 'band off, band on', text: 'Hides or shows the band in all sessions on this Mac. band on also undoes ×. The mod still counts.' },
       { term: 'recommend', text: 'Asks a model for advice on this usage. A dialog shows the cost first, and the call runs only when you press Ask. On a subscription it counts against the plan allowance.' },
     ],
   },
