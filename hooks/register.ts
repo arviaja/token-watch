@@ -28,7 +28,8 @@ const isPaneOpen = atom({ plugin: 'token-watch', key: 'isPaneOpen' } as const, f
 
 // The pane's id, used to open the pane and to recognize it when drawing
 const PANE = 'token-watch'
-// The settings of all sessions on this Mac. The key does not start with run:, so the clean-up and the list of the other sessions leave it alone
+// The settings of all sessions on this Mac: { band: 'on' | 'off' }. band off hides the band, and a missing value shows it.
+// The key does not start with run:, so the clean-up and the list of the other sessions leave it alone
 const SETTINGS_KEY = 'settings'
 const BAND_OFF = 'Band off in all sessions on this Mac. The mod still counts. /token-watch band on shows it again.'
 const BAND_ON = 'Band on in all sessions on this Mac.'
@@ -81,6 +82,10 @@ async function tick($: any): Promise<void> {
   await loadSettings($)
 }
 
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 async function isPaneShown($: any): Promise<boolean> {
   try {
     return (await $.ui.panes()).some((p: { id: string; isShown: boolean }) => p.id === PANE && p.isShown)
@@ -117,10 +122,10 @@ async function loadSettings($: any): Promise<void> {
 async function setBand($: any, isOn: boolean): Promise<void> {
   try {
     const current = await $.store.get(SETTINGS_KEY)
-    const base = typeof current === 'object' && current !== null ? current : {}
+    const base = typeof current === 'object' && current !== null && !Array.isArray(current) ? current : {}
     await $.store.set(SETTINGS_KEY, { ...base, band: isOn ? 'on' : 'off' })
   } catch (error) {
-    $.ui.toast('The band setting was not saved: ' + (error instanceof Error ? error.message : String(error)))
+    $.ui.toast('The band setting was not saved: ' + messageOf(error))
     return
   }
   await update($, isBandOn, () => isOn)
@@ -128,7 +133,7 @@ async function setBand($: any, isOn: boolean): Promise<void> {
   $.ui.toast(isOn ? BAND_ON : BAND_OFF)
 }
 
-// The band button reads the flag for its label, so each open and close sets it
+// The band button reads the flag for its label, so each open and close sets it. The flag means that the pane is up: shown, covered by another pane, or waiting for room
 async function markPane($: any, isOpen: boolean): Promise<void> {
   await update($, isPaneOpen, () => isOpen)
   $.ui.invalidate('ui.render')
@@ -144,19 +149,28 @@ async function openPane($: any): Promise<string | null> {
     if (opened.isPlaced === false) return 'The token-watch pane is waiting: ' + (opened.reason ?? 'no reason given')
   } catch (error) {
     // A refused open must not throw into the session: say why instead
-    return 'The token-watch pane did not open: ' + (error instanceof Error ? error.message : String(error))
+    return 'The token-watch pane did not open: ' + messageOf(error)
   }
   return null
 }
 
-// A shown pane closes. A closed pane, or one that another pane covers, opens in front.
+// The engine's list of panes, or the flag when the list is not available
+async function isPaneUp($: any): Promise<boolean> {
+  try {
+    return (await $.ui.panes()).some((p: { id: string }) => p.id === PANE)
+  } catch {
+    return read($, isPaneOpen)
+  }
+}
+
+// A pane that is up closes, also when another pane covers it or it waits for room, so the label [ close ] always closes it.
 // The mod's own $.ui.close does not run its own ui.close hook, so this function marks the pane closed itself
 async function togglePane($: any): Promise<string | null> {
-  if (!(await isPaneShown($))) return openPane($)
+  if (!(await isPaneUp($))) return openPane($)
   try {
     await $.ui.close({ id: PANE })
   } catch (error) {
-    return 'The token-watch pane did not close: ' + (error instanceof Error ? error.message : String(error))
+    return 'The token-watch pane did not close: ' + messageOf(error)
   }
   await markPane($, false)
   return null
@@ -293,7 +307,7 @@ async function openRecommend($: any, model: string): Promise<{ text?: string }> 
     const opened = await $.ui.open({ id: RECOMMEND_PANE, title: RECOMMEND_TITLE, focus: true, closeOnEscape: true, holdToasts: true, columns: 80, rows: 18 })
     if (opened.isPlaced === false) return { text: 'The token-watch recommend dialog is waiting: ' + (opened.reason ?? 'no reason given') }
   } catch (error) {
-    return { text: 'The token-watch recommend dialog did not open: ' + (error instanceof Error ? error.message : String(error)) }
+    return { text: 'The token-watch recommend dialog did not open: ' + messageOf(error) }
   }
   return {}
 }
@@ -322,7 +336,7 @@ async function askRecommend($: any): Promise<void> {
     result = await $.model.complete({ model: r.model, system: RECOMMEND_SYSTEM, prompt: r.prompt, maxTokens: r.outputCap, effort: RECOMMEND_EFFORT, timeoutMs: RECOMMEND_TIMEOUT_MS }, { signal: stop.signal })
   } catch (error) {
     // The engine refused to send the request, for example for a model that is not allowed. No call ran
-    await update($, recommend, (v) => (v?.id === r.id ? { ...v, phase: 'failed' as const, text: drawableText('The request was not sent: ' + (error instanceof Error ? error.message : String(error))) } : v))
+    await update($, recommend, (v) => (v?.id === r.id ? { ...v, phase: 'failed' as const, text: drawableText('The request was not sent: ' + messageOf(error)) } : v))
     return
   } finally {
     if (stopRecommend === stop) stopRecommend = null
@@ -411,7 +425,7 @@ export const register: Register = (on, options) => {
       // session.start also runs after a reload of the module
       await dropStaleAsk($)
       // The pane can stay open over a reload of the module
-      const isOpen = (await $.ui.panes()).some((p: { id: string }) => p.id === PANE)
+      const isOpen = await isPaneUp($)
       await update($, isPaneOpen, () => isOpen)
     } catch {
       // The timers and the command are still registered

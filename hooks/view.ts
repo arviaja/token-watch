@@ -37,9 +37,9 @@ const BAND_MARGIN = 4
 const BAND_BUTTON_GAP = 2
 const BAND_BUTTON_CELLS = BAND_BUTTON_GAP + '[ details ]'.length
 // The labels of the pane button, closed and open
-export const PANE_BUTTON_LABELS = { closed: 'details', open: 'close' } as const
+const PANE_BUTTON_LABELS = { closed: 'details', open: 'close' } as const
 // The key that presses the pane button once the band has the focus. A letter, because a bare digit in an empty prompt presses a band button
-export const PANE_BUTTON_HOTKEY = 't'
+const PANE_BUTTON_HOTKEY = 't'
 // The font table of desktopCells matched the band text of one screenshot to 0.1%, and of two more within 3%.
 // The band counts the desktop text 4% wider, so that it leaves out a part before the line wraps
 const DESKTOP_TEXT_FACTOR = 1.04
@@ -645,7 +645,7 @@ const HELP: HelpSection[] = [
   {
     title: '/token-watch',
     entries: [
-      { term: 'no argument', text: 'Opens this pane, or closes it when it shows.' },
+      { term: 'no argument', text: 'Opens this pane, or closes it when it is open.' },
       { term: 'band off, band on', text: 'Hides or shows the band in all sessions on this Mac. The mod still counts.' },
       { term: 'recommend', text: 'Asks a model for advice on this usage. A dialog shows the cost first, and the call runs only when you press Ask. On a subscription it counts against the plan allowance.' },
     ],

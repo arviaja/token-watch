@@ -42,7 +42,7 @@ export type Harness = {
 // Each failure is read at each call, so a test can turn it on after the start
 export type Failures = { sessionId?: boolean; agentList?: boolean }
 
-export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures; modelResult?: { deny: string } | { value: unknown } | (($: any) => Promise<{ deny: string } | { value: unknown }>); breakdown?: unknown } = {}): Harness {
+export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures; modelResult?: { deny: string } | { value: unknown } | (($: any) => Promise<{ deny: string } | { value: unknown }>); breakdown?: unknown } = {}): Harness {
   const store = new Map<string, unknown>(Object.entries(options.store ?? {}))
   const opened: unknown[] = []
   const registered: unknown[] = []
@@ -50,8 +50,9 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
   const closed: unknown[] = []
   const keyCalls = { count: 0 }
   const toasts: string[] = []
-  // The ids of the open panes. An open adds its id, a close of the mod takes it away
-  const up = new Set<string>()
+  // The open panes by id, and whether each one is placed. An open adds its id, a close of the mod takes it away.
+  // paneShown false stands for a pane that another pane covers
+  const up = new Map<string, boolean>()
   const clock = mock.clock(on, { now: T0 })
   on('store.get', (_$: unknown, e: { key: string }) => ({ value: store.get(e.key) }))
   on('store.set', (_$: unknown, e: { key: string; value: unknown }) => {
@@ -86,12 +87,16 @@ export function harness(on: any, options: { failStoreSet?: boolean; denyOpen?: b
   })
   on('ui.open', (_$: unknown, e: unknown) => {
     if (options.denyOpen) return { deny: 'no pane' }
-    if (options.openResult) return options.openResult
+    if (options.openResult) {
+      // A waiting pane is up, but not placed
+      if ('value' in options.openResult) up.set((e as { id: string }).id, (options.openResult.value as { isPlaced?: boolean }).isPlaced !== false)
+      return options.openResult
+    }
     opened.push(e)
-    up.add((e as { id: string }).id)
+    up.set((e as { id: string }).id, true)
     return { value: { isPlaced: true } }
   })
-  on('ui.panes', () => ({ value: [...up].map((id) => ({ id, title: id, isShown: true, isFocused: true, isPlaced: true })) }))
+  on('ui.panes', () => ({ value: [...up].map(([id, isPlaced]) => ({ id, title: id, isShown: isPlaced && options.paneShown !== false, isFocused: true, isPlaced })) }))
   on('ui.close', (_$: unknown, e: unknown) => {
     closed.push(e)
     up.delete((e as { id: string }).id)

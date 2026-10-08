@@ -24,7 +24,7 @@ In the terminal, the tube is drawn with block characters. In the desktop app, th
 
 ### Pane
 
-`/token-watch` or the band button opens a pane. The keys `1` to `5` select a tab. Esc, the band button or `/token-watch` closes the pane. When another pane covers the pane, `/token-watch` brings it to the front.
+`/token-watch` or the band button opens a pane. The keys `1` to `5` select a tab. Esc, the band button or `/token-watch` closes the pane. The band button and `/token-watch` close it also when another pane covers it or when it waits for room.
 
 | Tab | Content |
 |---|---|

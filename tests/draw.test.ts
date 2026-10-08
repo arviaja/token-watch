@@ -351,6 +351,47 @@ test('the band button opens the pane and closes it, and its label follows the pa
   expect(h.toasts).toEqual([])
 })
 
+// The label of the band button after each step, on the terminal
+async function paneLabel($: any): Promise<string | undefined> {
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const label = (await ui.findAll({ type: 'Button' })).find((b: any) => b.props.key === 'pane')?.props.label
+  await ui.unmount()
+  return label
+}
+
+test('a press closes a pane that another pane covers, so the label close always closes the pane', async ($, on) => {
+  const h = harness(on, { paneShown: false })
+  await start($)
+  await step($, FABLE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'pane' })
+  await ui.unmount()
+  expect(h.opened).toHaveLength(1)
+  expect(await paneLabel($)).toBe('close')
+  const again = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await again.press({ key: 'pane' })
+  await again.unmount()
+  expect(h.closed).toMatchObject([{ id: 'token-watch' }])
+  expect(h.opened).toHaveLength(1)
+  expect(await paneLabel($)).toBe('details')
+})
+
+test('a pane that waits for room reads close, says why in a toast, and the next press closes it', async ($, on) => {
+  const h = harness(on, { openResult: { value: { isPlaced: false, reason: 'terminal too narrow' } } })
+  await start($)
+  await step($, FABLE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'pane' })
+  await ui.unmount()
+  expect(h.toasts.at(-1)).toBe('The token-watch pane is waiting: terminal too narrow')
+  expect(await paneLabel($)).toBe('close')
+  const again = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await again.press({ key: 'pane' })
+  await again.unmount()
+  expect(h.closed).toMatchObject([{ id: 'token-watch' }])
+  expect(await paneLabel($)).toBe('details')
+})
+
 test('a press of the band button says in a toast why the pane did not open', async ($, on) => {
   const h = harness(on, { openResult: { deny: 'no pane slot' } })
   await start($)

@@ -33,7 +33,7 @@ Tests are in `tests/` and run with `claude plugin test`:
 
 - `format`, `prices`, `recommend`, `tally`, `temperature` and `view` each have one test file for the module of the same name. `view.test.ts` uses a stub element table.
 - `hooks.test.ts` and `draw.test.ts` run `register.ts` in the test engine. `hooks.test.ts` covers state, store, timers and hook results. `draw.test.ts` mounts the band and the pane on the terminal and on the desktop.
-- `helpers.ts` stubs each mods API call, keeps the store in a Map, tracks the open panes by id and keeps each toast. It stubs `$.model.complete`, so no test makes a real model call. A test sets the result of the stub with the option `modelResult`.
+- `helpers.ts` stubs each mods API call, keeps the store in a Map, tracks the open panes by id (the option `paneShown: false` stands for a covered pane) and keeps each toast. It stubs `$.model.complete`, so no test makes a real model call. A test sets the result of the stub with the option `modelResult`.
 
 ## Commands
 

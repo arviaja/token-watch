@@ -69,7 +69,7 @@ export const HELP_SECTIONS: { title: string; rows: [string, string][] }[] = [
   {
     title: '/token-watch',
     rows: [
-      ['no argument', 'Opens this pane, or closes it when it shows.'],
+      ['no argument', 'Opens this pane, or closes it when it is open.'],
       ['band off, band on', 'Hides or shows the band in all sessions on this Mac. The mod still counts.'],
       ['recommend', 'Asks a model for advice on this usage. A dialog shows the cost first, and the call runs only when you press Ask. On a subscription it counts against the plan allowance.'],
     ],
