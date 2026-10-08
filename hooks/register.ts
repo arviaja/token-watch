@@ -123,17 +123,18 @@ async function loadSettings($: any): Promise<void> {
 
 // The store holds the setting for all sessions. A failed write changes nothing, because the next tick reads the store again
 async function setBand($: any, isOn: boolean): Promise<void> {
+  // band on also shows a band that the × hid in this session. That needs no store, so it holds also when the write fails
+  if (isOn) await update($, isBandHidden, () => false)
   try {
     const current = await $.store.get(SETTINGS_KEY)
     const base = typeof current === 'object' && current !== null && !Array.isArray(current) ? current : {}
     await $.store.set(SETTINGS_KEY, { ...base, band: isOn ? 'on' : 'off' })
   } catch (error) {
+    $.ui.invalidate('ui.render')
     $.ui.toast('The band setting was not saved: ' + messageOf(error))
     return
   }
   await update($, isBandOn, () => isOn)
-  // band on also shows a band that the × hid in this session
-  if (isOn) await update($, isBandHidden, () => false)
   $.ui.invalidate('ui.render')
   $.ui.toast(isOn ? BAND_ON : BAND_OFF)
 }
