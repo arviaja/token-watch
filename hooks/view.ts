@@ -647,7 +647,7 @@ const HELP: HelpSection[] = [
     title: 'Costs',
     entries: [
       { term: 'every cost', text: 'An estimate at API list prices. A plan does not bill them. They show where the tokens go.' },
-      { term: 'opus-5-6 ≈', text: 'No exact price yet: priced as the newest model of its family. make prices lists these models.' },
+      { term: 'opus-5-6 ≈', text: 'No exact price yet: priced as the newest model of its family. make price-report lists these models.' },
       { term: 'unpriced', text: 'The model has no price in the table of the mod.' },
     ],
   },

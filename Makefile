@@ -1,16 +1,16 @@
 # Makefile of token-watch, a Claude Code mod.
 # `make verify` is the one entrypoint for the checks. Run it before each commit.
 # It runs the targets text, secrets, private, validate and test in this order and fails when one fails.
-# `make prices` lists the models in the store of the mod and shows how each one is priced. It informs, is not part of `verify` and always exits 0.
+# `make price-report` lists the models in the store of the mod and shows how each one is priced. It informs, is not part of `verify` and always exits 0.
 #
 # Prerequisites:
 #   - claude: the Claude Code CLI (`claude plugin validate` and `claude plugin test`)
 #   - gitleaks: the secret scan
 #   - perl: the dash check in scripts/check-dashes.sh (the version that ships with macOS and Linux)
-#   - git and node (node runs scripts/prices.mjs; the typecheck target also needs npx)
+#   - git and node (node runs scripts/price-report.mjs; the typecheck target also needs npx)
 #   - bash: scripts/check-private.sh
 
-.PHONY: verify text secrets private validate test typecheck prices
+.PHONY: verify text secrets private validate test typecheck price-report
 
 verify: text secrets private validate test
 
@@ -30,7 +30,7 @@ secrets:
 private:
 	bash scripts/check-private.sh
 
-# The manifest and the hooks module follow the rules of Claude Code.
+# The manifest and the mod follow the rules of Claude Code.
 validate:
 	claude plugin validate --strict .
 
@@ -44,8 +44,8 @@ test:
 typecheck:
 	npx -y -p typescript@5.9.3 tsc --noEmit -p .
 
-# The models that the mod saw, and how each one is priced: exact, fallback from <key> or unpriced.
-# It reads ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/store/token-watch_*.json and the keys of hooks/prices.ts.
-# Run it after a new model shows `unpriced` or `≈`, then add the model to PRICES in hooks/prices.ts.
-prices:
-	node scripts/prices.mjs
+# The models that the mod saw, and how each one is priced: exact, fallback from <key>, unpriced or alias.
+# It reads the store files of the mod. The keys of the price table are a copy in scripts/price-rule.mjs, and a test checks the copy.
+# Run it after a new model shows `unpriced` or `≈`. AGENTS.md says where to add the model.
+price-report:
+	node scripts/price-report.mjs

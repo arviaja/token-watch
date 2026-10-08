@@ -1,24 +1,19 @@
-// The rule that prices a model, and the pure helpers of scripts/prices.mjs. It has no import, so the tests in tests/ can load it.
+// The rule that prices a model, and the pure helpers of scripts/price-report.mjs. It has no import, so the tests in tests/ can load it.
 //
-// The rule is the one of hooks/prices.ts, written again here because Node does not import TypeScript:
+// The rule and the keys are those of the price table of the mod (AGENTS.md names the file), written again here because Node does not import TypeScript:
 // - The id loses a context suffix ([1m]) and a date suffix (-20251001).
 // - A key of the table is an exact price.
 // - Else the price of the newest model of the same family is the fallback price. The family is the word after `claude-`.
 //   The newest model has the highest version, compared number by number. A missing part counts as 0.
 // - A model of a family without a key has no price.
-// tests/prices.test.ts checks that this file and hooks/prices.ts give the same answer.
+// A test in tests/ checks that this file and the price table give the same answer, and that PRICE_KEYS holds the keys of the table.
 
 function isObject(x) {
   return typeof x === 'object' && x !== null && !Array.isArray(x)
 }
 
-// The keys of the table PRICES, from the text of hooks/prices.ts: the quoted `claude-...` keys
-export function priceKeysOf(text) {
-  const start = text.indexOf('export const PRICES')
-  const end = start === -1 ? -1 : text.indexOf('\n}', start)
-  const block = start === -1 ? text : text.slice(start, end === -1 ? undefined : end)
-  return [...block.matchAll(/^\s*['"](claude-[^'"]+)['"]\s*:/gm)].map((match) => match[1])
-}
+// A copy of the keys of the table PRICES, in the same order. A new key goes into both lists
+export const PRICE_KEYS = ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-4-5']
 
 export function baseModel(model) {
   return model.replace(/\[.*\]$/, '').replace(/-\d{8}$/, '')

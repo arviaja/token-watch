@@ -1,6 +1,6 @@
 {
   "name": "token-watch",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Shows token use, plan limits and cache temperature of the sessions on this Mac",
   "author": {
     "name": "Sebastian Varga"
