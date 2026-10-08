@@ -329,8 +329,9 @@ test('the band button opens the pane and closes it, and its label follows the pa
   }
   for (const surface of SURFACES) {
     let { ui, button } = await buttonOf(surface)
-    // A bracketed button: not plain, dimmed, a letter as hotkey, and the first focus of the band
-    expect(button?.props, surface).toMatchObject({ label: 'details', hotkey: 't', autoFocus: true, dimColor: true })
+    // A bracketed button: not plain, dimmed, and the first focus of the band. The terminal has a letter as hotkey; the desktop has none, because it draws a hotkey as a badge
+    expect(button?.props, surface).toMatchObject({ label: 'details', autoFocus: true, dimColor: true })
+    expect(button?.props.hotkey, surface).toBe(surface === 'terminal' ? 't' : undefined)
     expect(button?.props.plain, surface).toBeUndefined()
     const opened = h.opened.length
     await ui.press({ key: 'pane' })
@@ -359,8 +360,8 @@ test('the × hides the band in this session only, and band on shows it again, on
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...BAND, surface })
     const hide = (await ui.findAll({ type: 'Button' })).find((b: any) => b.props.key === 'band-hide')
-    // The close control of the band: a glyph on the terminal, the native close mark on the desktop with the label as its name
-    expect(hide?.props, surface).toMatchObject({ role: 'dismiss', plain: true, dimColor: true, label: surface === 'terminal' ? '×' : 'Hide the band in this session' })
+    // The close control of the band: the glyph on both surfaces, because the desktop draws the label and no close mark in the band
+    expect(hide?.props, surface).toMatchObject({ role: 'dismiss', plain: true, dimColor: true, label: '×' })
     await ui.unmount()
   }
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
