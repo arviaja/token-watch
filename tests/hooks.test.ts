@@ -439,3 +439,18 @@ test('the command closes the pane when it shows, and opens it again after that',
   await $.command.run({ command: 'token-watch', args: '' })
   expect(h.opened).toHaveLength(2)
 })
+
+test('band on shows a band that the × hid in this session, also when the store write fails', async ($, on) => {
+  const h = harness(on, { failStoreSet: true })
+  await start($)
+  await step($, FABLE)
+  const ui = await $.ui.mount({ plugin: 'token-watch', component: 'AbovePrompt', viewport: { columns: 160, rows: 40 }, props: { hasSurvey: false, isWorking: false, maxRows: 5, bodyColumns: 160, scroll: { offset: 0, bodyRows: 5 }, view: {} }, surface: 'terminal' })
+  await ui.press({ key: 'band-hide' })
+  await ui.unmount()
+  await $.command.run({ command: 'token-watch', args: 'band' })
+  expect(h.toasts.at(-1)).toBe('The band is hidden in this session. /token-watch band on shows it.')
+  await $.command.run({ command: 'token-watch', args: 'band on' })
+  expect(h.toasts.at(-1)).toMatch(/^The band setting was not saved: /)
+  await $.command.run({ command: 'token-watch', args: 'band' })
+  expect(h.toasts.at(-1)).toBe('The band is on. /token-watch band off hides it.')
+})

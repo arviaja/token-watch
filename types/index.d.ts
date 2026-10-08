@@ -99,6 +99,8 @@ declare module 'claude-code' {
       isBandOn: boolean
       // The pane of /token-watch is open. The band button reads it for its label
       isPaneOpen: boolean
+      // The × of the band hid it in this session. /token-watch band on clears it
+      isBandHidden: boolean
     }
   }
 }

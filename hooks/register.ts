@@ -25,6 +25,7 @@ const tab = atom({ plugin: 'token-watch', key: 'tab' } as const, 1)
 const recommend = atom({ plugin: 'token-watch', key: 'recommend' } as const, null)
 const isBandOn = atom({ plugin: 'token-watch', key: 'isBandOn' } as const, true)
 const isPaneOpen = atom({ plugin: 'token-watch', key: 'isPaneOpen' } as const, false)
+const isBandHidden = atom({ plugin: 'token-watch', key: 'isBandHidden' } as const, false)
 
 // The pane's id, used to open the pane and to recognize it when drawing
 const PANE = 'token-watch'
@@ -35,6 +36,8 @@ const BAND_OFF = 'Band off in all sessions on this Mac. The mod still counts. /t
 const BAND_ON = 'Band on in all sessions on this Mac.'
 const BAND_IS_OFF = 'The band is off. /token-watch band on shows it.'
 const BAND_IS_ON = 'The band is on. /token-watch band off hides it.'
+const BAND_HIDDEN = 'Band hidden in this session. /token-watch band on shows it again.'
+const BAND_IS_HIDDEN = 'The band is hidden in this session. /token-watch band on shows it.'
 // The dialog of /token-watch recommend is a pane of its own, so the tabs keep their state
 const RECOMMEND_PANE = 'token-watch-recommend'
 const RECOMMEND_TITLE = 'token-watch recommend'
@@ -120,17 +123,32 @@ async function loadSettings($: any): Promise<void> {
 
 // The store holds the setting for all sessions. A failed write changes nothing, because the next tick reads the store again
 async function setBand($: any, isOn: boolean): Promise<void> {
+  // band on also shows a band that the × hid in this session. That needs no store, so it holds also when the write fails
+  if (isOn) await update($, isBandHidden, () => false)
   try {
     const current = await $.store.get(SETTINGS_KEY)
     const base = typeof current === 'object' && current !== null && !Array.isArray(current) ? current : {}
     await $.store.set(SETTINGS_KEY, { ...base, band: isOn ? 'on' : 'off' })
   } catch (error) {
+    $.ui.invalidate('ui.render')
     $.ui.toast('The band setting was not saved: ' + messageOf(error))
     return
   }
   await update($, isBandOn, () => isOn)
   $.ui.invalidate('ui.render')
   $.ui.toast(isOn ? BAND_ON : BAND_OFF)
+}
+
+// The × of the band: this session only. The store and the other sessions stay unchanged
+async function hideBand($: any): Promise<void> {
+  await update($, isBandHidden, () => true)
+  $.ui.invalidate('ui.render')
+  $.ui.toast(BAND_HIDDEN)
+}
+
+async function bandStateText($: any): Promise<string> {
+  if (!(await read($, isBandOn))) return BAND_IS_OFF
+  return (await read($, isBandHidden)) ? BAND_IS_HIDDEN : BAND_IS_ON
 }
 
 // The band button reads the flag for its label, so each open and close sets it. The flag means that the pane is up: shown, covered by another pane, or waiting for room
@@ -527,7 +545,7 @@ export const register: Register = (on, options) => {
       return {}
     }
     if (args === 'band') {
-      $.ui.toast((await read($, isBandOn)) ? BAND_IS_ON : BAND_IS_OFF)
+      $.ui.toast(await bandStateText($))
       return {}
     }
     const message = await togglePane($)
@@ -536,14 +554,14 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || !(await read($, isBandOn))) return next(e)
+    if (e.props.hasSurvey || !(await read($, isBandOn)) || (await read($, isBandHidden))) return next(e)
     const now = await $.clock.now()
     const data = bandData(await read($, main), await read($, totals), await read($, limits), await read($, limitsAt), now)
     if (data === null) return next(e)
     const E = $.ui.resolve(e) as unknown as Els
     // What the mods after this one draw in the band stays, below this line
     const theirs = await next(e)
-    const line = bandEls(E, data, e.surface, e.props.bodyColumns, { isOpen: await read($, isPaneOpen), onPress: () => pressPane($) })
+    const line = bandEls(E, data, e.surface, e.props.bodyColumns, { isPaneOpen: await read($, isPaneOpen), onPane: () => pressPane($), onHide: () => hideBand($) })
     return (theirs ? E.Box({ flexDirection: 'column', children: [line, theirs] }) : line) as never
   })
 
