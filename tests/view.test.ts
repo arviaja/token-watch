@@ -2391,3 +2391,13 @@ test('the band counts down a 5-minute cache life and prices the re-warm with the
   expect(d.stage).toBe('WARM')
   expect(d.label).toBe('2m left · 411k cached · $5.14 to re-warm')
 })
+
+test('a band with only the label of an unknown cache life still shows, without limits and without models', async () => {
+  // A resume within 5 minutes with an API key: no limits, no totals yet, and both lives fit
+  const main = { ...NO_MAIN, lastRequestAt: T0 - 2 * MIN, ttl: null, contextTokens: 380_000, model: 'claude-opus-5-5' }
+  const d = bandData(main, {}, [], null, T0)
+  expect(d).not.toBeNull()
+  expect(flat(bandEls(E, d!))).toContain('cache life unknown · last request 2m ago')
+  // Without a request the band stays away
+  expect(bandData(NO_MAIN, {}, [], null, T0)).toBeNull()
+})

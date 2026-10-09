@@ -1,5 +1,4 @@
-import type { Counts, Limit, Reading } from '../types'
-import type { Ttl } from '../types'
+import type { Counts, Limit, Reading, Ttl } from '../types'
 import { minutesCold, minutesLeft, type Stage } from './temperature'
 
 export type Align = 'left' | 'right'
@@ -223,7 +222,7 @@ export function limitProjection(limit: Limit, readAt: number | null, now: number
 
 // rewarm is the cost to write the context again, or null for a model without a price. isEstimated marks a cost from a fallback price with `≈`.
 // ttl is the cache life of the last request. Only COLD and LIVE show without it: the other stages need a known life
-export function tubeLabel(stage: Stage, lastAt: number | null, now: number, contextTokens: number, rewarm: number | null, isEstimated: boolean = false, ttl: Ttl | null = '1h'): string {
+export function tubeLabel(stage: Stage, lastAt: number | null, now: number, contextTokens: number, rewarm: number | null, isEstimated: boolean, ttl: Ttl | null): string {
   const cached = formatTokens(contextTokens)
   if (stage === 'LIVE' || lastAt === null) return contextTokens > 0 ? 'in turn · ' + cached + ' cached' : 'in turn'
   if (stage === 'COLD' || ttl === null) return minutesCold(lastAt, now, ttl) + 'm · next message re-writes ' + cached + (rewarm === null ? '' : ' ≈ ' + formatMoney(rewarm))

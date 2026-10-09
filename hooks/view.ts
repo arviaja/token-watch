@@ -106,7 +106,7 @@ export function bandData(main: Main, totals: Totals, limits: Limit[], limitsAt: 
   const label = stage !== null ? tubeLabel(stage, main.lastRequestAt, now, main.contextTokens, rewarm, info?.source === 'fallback', ttl) : main.lastRequestAt === null ? '' : unknownLabel(main.lastRequestAt, now)
   const items = limitItems(limits, limitsAt, now)
   const { models, more } = bandModels(totals)
-  if (f === null && items.length === 0 && models === '') return null
+  if (f === null && label === '' && items.length === 0 && models === '') return null
   // The tube label already names the context size
   const context = stage === null && main.contextTokens > 0 ? formatTokens(main.contextTokens) : ''
   return { fraction: f, stage, label, limits: items, limitsAge: items.length === 0 ? '' : limitsAgeText(limitsAt, now), context, models, more }

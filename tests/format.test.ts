@@ -167,21 +167,21 @@ test('limitsAgeText names the age of a reading that is older than 30 minutes', a
 
 test('tubeLabel gives the text for each stage', async () => {
   const t0 = Date.UTC(2026, 9, 6, 12, 0)
-  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, 8.22004)).toBe('47m left · 411k cached · $8.22 to re-warm')
-  expect(tubeLabel('COLD', t0, t0 + 75 * MIN, 411_002, 8.22004)).toBe('15m · next message re-writes 411k ≈ $8.22')
-  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, null)).toBe('47m left · 411k cached')
-  expect(tubeLabel('COLD', t0, t0 + 75 * MIN, 411_002, null)).toBe('15m · next message re-writes 411k')
-  expect(tubeLabel('LIVE', t0, t0, 411_002, 8.22)).toBe('in turn · 411k cached')
-  expect(tubeLabel('LIVE', null, t0, 0, 0)).toBe('in turn')
+  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, 8.22004, false, '1h')).toBe('47m left · 411k cached · $8.22 to re-warm')
+  expect(tubeLabel('COLD', t0, t0 + 75 * MIN, 411_002, 8.22004, false, '1h')).toBe('15m · next message re-writes 411k ≈ $8.22')
+  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, null, false, '1h')).toBe('47m left · 411k cached')
+  expect(tubeLabel('COLD', t0, t0 + 75 * MIN, 411_002, null, false, '1h')).toBe('15m · next message re-writes 411k')
+  expect(tubeLabel('LIVE', t0, t0, 411_002, 8.22, false, '1h')).toBe('in turn · 411k cached')
+  expect(tubeLabel('LIVE', null, t0, 0, 0, false, '1h')).toBe('in turn')
 })
 
 test('tubeLabel puts ≈ before the re-warm cost of a fallback price, and keeps the COLD label as it is', async () => {
   const t0 = Date.UTC(2026, 9, 6, 12, 0)
-  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, 8.22004, true)).toBe('47m left · 411k cached · ≈ $8.22 to re-warm')
-  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, 8.22004, false)).toBe('47m left · 411k cached · $8.22 to re-warm')
-  expect(tubeLabel('COLD', t0, t0 + 75 * MIN, 411_002, 8.22004, true)).toBe('15m · next message re-writes 411k ≈ $8.22')
-  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, null, true)).toBe('47m left · 411k cached')
-  expect(tubeLabel('LIVE', t0, t0, 411_002, 8.22, true)).toBe('in turn · 411k cached')
+  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, 8.22004, true, '1h')).toBe('47m left · 411k cached · ≈ $8.22 to re-warm')
+  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, 8.22004, false, '1h')).toBe('47m left · 411k cached · $8.22 to re-warm')
+  expect(tubeLabel('COLD', t0, t0 + 75 * MIN, 411_002, 8.22004, true, '1h')).toBe('15m · next message re-writes 411k ≈ $8.22')
+  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, null, true, '1h')).toBe('47m left · 411k cached')
+  expect(tubeLabel('LIVE', t0, t0, 411_002, 8.22, true, '1h')).toBe('in turn · 411k cached')
 })
 
 test('modelsText shows cache read, cache write and output per model', async () => {
