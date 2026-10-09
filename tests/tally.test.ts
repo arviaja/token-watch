@@ -242,7 +242,7 @@ test('groupWeek marks a model with a fallback price as estimated, and not an exa
       'claude-opus-5-6-20260101|main': counts(1),
       'claude-opus-4-9[1m]|Explore': counts(2),
       'claude-haiku-4-5-20251001|main': counts(1),
-      'claude-mythos-1|main': counts(0),
+      'claude-example-1|main': counts(0),
     },
   }
   const g = groupWeek([snap({ hours })] as never, T0 - DAY_MS, T0 + HOUR_MS)
@@ -251,7 +251,7 @@ test('groupWeek marks a model with a fallback price as estimated, and not an exa
     { name: 'opus-5-6 main', cost: 5, isEstimated: true },
     { name: 'opus-4-9[1m] Explore', cost: 2, isEstimated: true },
     { name: 'haiku-4-5 main', cost: 1 },
-    { name: 'mythos-1 main', cost: 0, isUnpriced: true },
+    { name: 'example-1 main', cost: 0, isUnpriced: true },
   ])
   // The repo table mixes models: no flag
   expect(g.byRepo).toEqual([{ name: 'webshop', cost: 14 }])

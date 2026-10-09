@@ -124,7 +124,7 @@ test('/compact shows from 400k tokens with the price of reading them, and withou
   // 411k at the read price of Fable 5.1, 0.25 per million
   expect(afterTube(bandEls(E, bandAt(T0 + 13 * MIN, { context: 411_002 })), 'terminal')).toBe('HOT 47m left · 411k cached | /compact: each message reads 411k ≈ $0.10 | week 41%')
   expect(bandAt(T0 + 13 * MIN, { context: 399_999 }).action).toBeNull()
-  expect(bandAt(T0 + 13 * MIN, { context: 411_002, model: 'claude-mythos-1' }).action?.rest).toBe(': each message reads 411k')
+  expect(bandAt(T0 + 13 * MIN, { context: 411_002, model: 'claude-example-1' }).action?.rest).toBe(': each message reads 411k')
 })
 
 test('slow down shows when the week runs out before its reset, with the next smaller model, and the range takes the heat colour', async () => {
@@ -1091,7 +1091,7 @@ test('the Session cells mark the model name of a cost from a fallback price with
   expect(sessionCells(ESTIMATED_ROWS[1], total)[0]).toBe('haiku-4… ≈')
   expect(sessionCells(ESTIMATED_ROWS[2], total)[0]).toBe('sonnet-… ≈')
   // No mark for an exact price, a dated or [1m] variant of it, and a model without a price
-  for (const model of ['claude-opus-5-5', 'claude-haiku-4-5-20251001', 'claude-opus-5-5[1m]', 'claude-mythos-1']) {
+  for (const model of ['claude-opus-5-5', 'claude-haiku-4-5-20251001', 'claude-opus-5-5[1m]', 'claude-example-1']) {
     expect(sessionCells({ ...opus, model }, total).join('')).not.toContain('≈')
   }
 })
@@ -1163,8 +1163,8 @@ test('the band shows ≈ before the re-warm cost of a fallback price, and not fo
     expect(hot('claude-opus-4-9'), surface).toContain('· ≈ $2.40 to re-warm')
     expect(hot('claude-opus-5-5'), surface).toBe('HOT 47m left · 300k cached · $2.40 to re-warm')
     expect(hot('claude-opus-5-5[1m]'), surface).not.toContain('≈')
-    expect(hot('claude-mythos-1'), surface).not.toContain('re-warm')
-    expect(hot('claude-mythos-1'), surface).not.toContain('≈')
+    expect(hot('claude-example-1'), surface).not.toContain('re-warm')
+    expect(hot('claude-example-1'), surface).not.toContain('≈')
   }
   const label = (d: { lead: string; context: string; price: string }) => d.lead + d.context + d.price
   // The COLD label has its own ≈ and does not get a second one
@@ -2118,7 +2118,7 @@ test('the dialog shows the cost before the call, the wait, the reply and the rea
   expect(confirm).toContain('≈ $0.04 at API prices of sonnet-5-5, with the full output cap')
   expect(all(recommendEls(E, DIALOG, ACTIONS, 80), 'Button').map((b) => b.props.key)).toEqual(['recommend-ask', 'recommend-cancel'])
   // A model without a price in the table has no cost
-  const unpriced = flat(recommendEls(E, { ...DIALOG, model: 'mythos', priceModel: 'claude-mythos', maxCost: null }, ACTIONS, 80))
+  const unpriced = flat(recommendEls(E, { ...DIALOG, model: 'example', priceModel: 'claude-example', maxCost: null }, ACTIONS, 80))
   expect(unpriced).toContain('unknown: the table of the mod has no price for this model')
   // A full id with an exact price has no ≈
   expect(flat(recommendEls(E, { ...DIALOG, model: 'claude-opus-5-5', priceModel: 'claude-opus-5-5', maxCost: 0.0852 }, ACTIONS, 80))).toContain('$0.09 at API prices of opus-5-5')

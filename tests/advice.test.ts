@@ -110,7 +110,7 @@ test('the cache actions need a known cache life, a request, a price and no runni
   expect(at(T0 + 52 * MIN, { ttl: null })).toBeNull()
   expect(at(T0 + 75 * MIN, { ttl: null })).toBeNull()
   expect(at(T0 + 52 * MIN, { lastRequestAt: null })).toBeNull()
-  expect(at(T0 + 52 * MIN, { model: 'claude-mythos-1' })).toBeNull()
+  expect(at(T0 + 52 * MIN, { model: 'claude-example-1' })).toBeNull()
   expect(at(T0 + 52 * MIN, { isWorking: true })).toBeNull()
   // The limit actions show also during a turn
   expect(at(T0, { isWorking: true }, [week(76)])?.kind).toBe('slowDown')
@@ -120,7 +120,7 @@ test('/compact shows from 400k tokens, also with an unknown cache life, and name
   expect(at(T0 + 13 * MIN, { contextTokens: 400_000 })?.kind).toBe('compact')
   expect(at(T0 + 13 * MIN, { contextTokens: 399_999 })).toBeNull()
   expect(at(T0 + 13 * MIN, { contextTokens: 640_000, ttl: null })?.kind).toBe('compact')
-  expect(at(T0 + 13 * MIN, { contextTokens: 640_000, model: 'claude-mythos-1' })?.rest).toBe(': each message reads 640k')
+  expect(at(T0 + 13 * MIN, { contextTokens: 640_000, model: 'claude-example-1' })?.rest).toBe(': each message reads 640k')
   // Haiku 5.5 reads a prompt above 100,000 tokens at 0.05 per million: 640k for $0.03
   expect(at(T0 + 13 * MIN, { contextTokens: 640_000, model: 'claude-haiku-5-5' })?.rest).toBe(': each message reads 640k ≈ $0.03')
   expect(at(T0 + 13 * MIN, { contextTokens: 640_000, isWorking: true })).toBeNull()

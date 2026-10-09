@@ -36,7 +36,7 @@ function full(): RecommendInput {
     ],
     byModelScope: [
       { name: 'fable-5-1 main', cost: 30 },
-      { name: 'mythos-1 main', cost: 0, isUnpriced: true },
+      { name: 'example-1 main', cost: 0, isUnpriced: true },
     ],
     total: 40,
   }
@@ -69,7 +69,7 @@ test('an alias is priced as its family and keeps its name, and a full id stays a
   expect(priceInfo('claude-sonnet')?.source).toBe('fallback')
   expect(priceSourceOf('claude-sonnet')).toBe('sonnet-5-5')
   expect(priceSourceOf('claude-opus-5-5')).toBe('opus-5-5')
-  expect(priceSourceOf('claude-mythos')).toBeUndefined()
+  expect(priceSourceOf('claude-example')).toBeUndefined()
 })
 
 test('the model comes from the option recommendModel, and sonnet when the option is empty or not a text', async () => {
@@ -161,7 +161,7 @@ test('the prompt holds the data of the tabs in fixed sections', async () => {
   // The past periods only: a future period has no value yet
   expect(prompt).toContain('Highest weekly percent of each 12 hours, oldest first: no reading, 33%.')
   expect(prompt).toContain('Cost by repo: webshop $30.00 (75%), billing-service $10.00 (25%).')
-  expect(prompt).toContain('Cost by model and scope: fable-5-1 main $30.00 (75%), mythos-1 main no price.')
+  expect(prompt).toContain('Cost by model and scope: fable-5-1 main $30.00 (75%), example-1 main no price.')
   expect(prompt).toContain('- sonnet-5-5: input 2, cache write 4 (1 hour) or 2.5 (5 minutes), cache read 0.1, output 10')
   expect(prompt.endsWith('\n')).toBe(false)
 })
@@ -177,10 +177,10 @@ test('a prompt without data says so in each section', async () => {
 })
 
 test('a cost from a fallback price names the price that it uses, and a model without a price says so', async () => {
-  const totals = addTo(addTo({}, 'claude-opus-5-6', 'main', countsOf({ ...FABLE, model: 'claude-opus-5-6' }, 2)), 'claude-mythos-1', 'main', countsOf({ ...FABLE, model: 'claude-mythos-1' }, 0))
+  const totals = addTo(addTo({}, 'claude-opus-5-6', 'main', countsOf({ ...FABLE, model: 'claude-opus-5-6' }, 2)), 'claude-example-1', 'main', countsOf({ ...FABLE, model: 'claude-example-1' }, 0))
   const prompt = recommendPrompt({ ...EMPTY, totals })
   expect(prompt).toContain('opus-5-6 main: 1 request, input 6, cache write 12.0k, cache read 400k, output 1.4k, $2.00 (price of opus-5-5) (100%)')
-  expect(prompt).toContain('mythos-1 main: 1 request, input 6, cache write 12.0k, cache read 400k, output 1.4k, no price (0%)')
+  expect(prompt).toContain('example-1 main: 1 request, input 6, cache write 12.0k, cache read 400k, output 1.4k, no price (0%)')
 })
 
 test('a text for the dialog loses its control characters and is cut at 10000 characters with a note', async () => {

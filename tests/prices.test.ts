@@ -63,7 +63,7 @@ test('compareVersions compares number by number and counts a missing part as 0',
 
 test('familyOf and versionOf read the word and the numbers after claude-', async () => {
   expect(familyOf('claude-opus-5-5')).toBe('opus')
-  expect(familyOf('claude-mythos-1')).toBe('mythos')
+  expect(familyOf('claude-example-1')).toBe('example')
   expect(familyOf('claude-opus')).toBe('opus')
   expect(familyOf('gpt-6-sol')).toBeUndefined()
   expect(versionOf('claude-opus-5-5')).toEqual([5, 5])
@@ -76,7 +76,8 @@ test('newestOf takes the highest version of a family from the table', async () =
   expect(newestOf('sonnet')).toBe('claude-sonnet-5-5')
   expect(newestOf('fable')).toBe('claude-fable-5-1')
   expect(newestOf('haiku')).toBe('claude-haiku-5-5')
-  expect(newestOf('mythos')).toBeUndefined()
+  expect(newestOf('mythos')).toBe('claude-mythos-5-1')
+  expect(newestOf('example')).toBeUndefined()
 })
 
 test('priceInfo returns an exact price with its source, also for a date or context suffix', async () => {
@@ -99,8 +100,8 @@ test('a new model uses the price of the newest model of its family', async () =>
 })
 
 test('a model of a family without a key, or without the claude- prefix, has no price', async () => {
-  expect(priceInfo('claude-mythos-1')).toBeUndefined()
-  expect(priceOf('claude-mythos-1')).toBeUndefined()
+  expect(priceInfo('claude-example-1')).toBeUndefined()
+  expect(priceOf('claude-example-1')).toBeUndefined()
   expect(priceInfo('gpt-6-sol')).toBeUndefined()
   expect(priceInfo('')).toBeUndefined()
   // The legacy form claude-3-5-haiku has the number after claude-, so it has no family key
@@ -119,12 +120,12 @@ test('costOf, writeCostOf and rewarmCost use the fallback price', async () => {
   close(writeCostOf({ model: 'claude-opus-4-9', cache_creation_input_tokens: 1_000_000 }, '1h'), 8)
   close(writeCostOf({ model: 'claude-opus-4-9', cache_creation_input_tokens: 1_000_000 }, '5m'), 5)
   close(rewarmCost('claude-opus-5-6', 412_000, '1h'), 3.296)
-  expect(costOf({ ...usage, model: 'claude-mythos-1' }, '1h')).toBe(0)
-  expect(rewarmCost('claude-mythos-1', 412_000, '1h')).toBe(0)
+  expect(costOf({ ...usage, model: 'claude-example-1' }, '1h')).toBe(0)
+  expect(rewarmCost('claude-example-1', 412_000, '1h')).toBe(0)
 })
 
 // The models of the check are the cases of the rule: exact, fallback by a higher and a lower version, a suffix, other families and no family
-const RULE_MODELS = ['claude-opus-5-5', 'claude-opus-5', 'claude-opus-5-6', 'claude-opus-4-9', 'claude-sonnet-6', 'claude-fable-5-2', 'claude-haiku-4-5-20251001', 'claude-haiku-4-6-20260101', 'claude-opus-5-5[1m]', 'claude-opus-4-9[1m]', 'claude-mythos-1', 'claude-3-5-haiku-20241022', 'gpt-6-sol', '']
+const RULE_MODELS = ['claude-opus-5-5', 'claude-opus-5', 'claude-opus-5-6', 'claude-opus-4-9', 'claude-opus-4-7', 'claude-sonnet-4-6-20250929', 'claude-mythos-5-1', 'claude-mythos-6', 'claude-sonnet-6', 'claude-fable-5-2', 'claude-haiku-4-5-20251001', 'claude-haiku-4-6-20260101', 'claude-opus-5-5[1m]', 'claude-opus-4-9[1m]', 'claude-example-1', 'claude-3-5-haiku-20241022', 'gpt-6-sol', '']
 
 test('scripts/price-rule.mjs gives the same answer as priceInfo for the same table', async () => {
   const keys = Object.keys(PRICES)
@@ -153,11 +154,11 @@ test('collectModels finds the model fields and the model part of the hour bucket
 
 test('reportLines gives one sorted line for each model and a summary', async () => {
   const keys = Object.keys(PRICES)
-  const lines = reportLines(new Set(['claude-sonnet-6', 'claude-opus-5-5', 'claude-mythos-1']), keys, 2)
+  const lines = reportLines(new Set(['claude-sonnet-6', 'claude-opus-5-5', 'claude-example-1']), keys, 2)
   expect(lines).toEqual([
-    'claude-mythos-1  unpriced',
-    'claude-opus-5-5  exact',
-    'claude-sonnet-6  fallback from claude-sonnet-5-5',
+    'claude-example-1  unpriced',
+    'claude-opus-5-5   exact',
+    'claude-sonnet-6   fallback from claude-sonnet-5-5',
     '3 models in 2 store files: 1 exact, 1 fallback, 1 unpriced',
   ])
   // The price model of /token-watch recommend has no version: it is an alias, not a missing key
@@ -177,6 +178,22 @@ test('Sonnet 5.5 reads the cache at 0.10, and Haiku 5.5 has a higher price for a
   close(costOf(mixed, '5m'), (1 * 0.5 + 60_000 * 0.05 + 40_000 * 0.625) / 1e6)
   close(rewarmCost('claude-haiku-5-5', 100_000, '1h'), 0.02)
   close(rewarmCost('claude-haiku-5-5', 412_000, '1h'), 0.412)
+})
+
+test('the older models that the API still serves have exact prices, which differ from the newest model of their family', async () => {
+  // The pricing page, read 2026-10-09: Opus 4.7, 4.6 and 4.5 cost as Opus 5, Sonnet 4.6 and 4.5 cost 3 / 15, Mythos costs as Fable
+  for (const model of ['claude-opus-4-7', 'claude-opus-4-6', 'claude-opus-4-5-20251101']) expect(priceInfo(model)).toEqual({ price: PRICES['claude-opus-5'], source: 'exact' })
+  for (const model of ['claude-sonnet-4-6', 'claude-sonnet-4-5-20250929', 'claude-sonnet-4-6[1m]']) expect(priceInfo(model)).toEqual({ price: { input: 3, write5m: 3.75, write1h: 6, read: 0.3, output: 15 }, source: 'exact' })
+  expect(priceInfo('claude-mythos-5-1')).toEqual({ price: PRICES['claude-fable-5-1'], source: 'exact' })
+  expect(priceInfo('claude-mythos-5')).toEqual({ price: PRICES['claude-fable-5'], source: 'exact' })
+  // A cache read of Opus 4.7 costs 0.50, not the 0.20 of Opus 5.5
+  close(costOf({ model: 'claude-opus-4-7', cache_read_input_tokens: 1_000_000 }, '1h'), 0.5)
+  close(costOf({ model: 'claude-sonnet-4-6', input_tokens: 1_000_000, output_tokens: 1_000_000 }, '1h'), 3 + 15)
+  // An exact price is evidence for the cache life: Sonnet 4.6 at 1 hour is 2 x 3 + 25,111 x 0.3 + 28,644 x 6 + 79 x 15 = 180,588.3 per million
+  const usage = { model: 'claude-sonnet-4-6', input_tokens: 2, output_tokens: 79, cache_read_input_tokens: 25_111, cache_creation_input_tokens: 28_644 }
+  expect(matchLifetime(usage, 0.1805883)).toBe('1h')
+  // At 5 minutes: the write at 3.75 gives 116,139.3 per million
+  expect(matchLifetime(usage, 0.1161393)).toBe('5m')
 })
 
 test('matchLifetime finds the cache life whose price gives the booked cost', async () => {
