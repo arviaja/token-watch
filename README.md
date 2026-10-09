@@ -107,7 +107,7 @@ Each hook passes its event on unchanged, with three exceptions that concern only
 
 ## Requirements
 
-Claude Code 2.1.287 or later. Tested with 2.1.288 (automated tests) and 2.1.291 (manual checks).
+Claude Code 2.1.287 or later. Tested with 2.1.288 (automated tests), 2.1.291 (manual checks) and 2.1.294 (checks of the cache life).
 
 ## Installation
 
