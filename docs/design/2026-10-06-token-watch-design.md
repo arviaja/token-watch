@@ -855,7 +855,7 @@ Each conversation writes one key, `run:<session id>:<start time>`. The band sett
 
 ## Prices
 
-The mod contains a price table for the weighting (`PRICES` in `hooks/prices.ts`). The source of the values is the Claude pricing page, read 2026-10-09. The table also holds the older models that the API still serves (Opus 4.7, 4.6 and 4.5, Sonnet 4.6 and 4.5, Mythos 5): their prices differ from the newest model of their family, and only an exact price shows the cache life. A price change needs an edit of the table in the mod. The match of the cache life needs the prices to the cent, because Claude Code books the same prices.
+The mod contains a price table for the weighting (`PRICES` in `hooks/prices.ts`). The source of the values is the Claude pricing page, read 2026-10-09. The table also holds the Mythos family (Mythos 5.1 and Mythos 5, limited availability) and the older models that the API still serves (Opus 4.7, 4.6 and 4.5, Sonnet 4.6 and 4.5): their prices differ from the newest model of their family, and only an exact price shows the cache life. A price change needs an edit of the table in the mod. The match of the cache life needs the prices to the cent, because Claude Code books the same prices.
 
 - Haiku 5.5 has a higher price for a prompt above 100,000 tokens. Its entry holds `above: { tokens: 100000, rates }`. The prompt is the input, the cache read and the cache write of the request. `ratesOf(price, promptTokens)` gives the rates of a request.
 - `costOf(usage, ttl)` and `writeCostOf(usage, ttl)` take the cache life of the request. `rewarmCost(model, contextTokens, ttl)` prices the whole context as one cache write.
