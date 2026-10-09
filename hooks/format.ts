@@ -44,9 +44,15 @@ export function shortModel(id: string): string {
   return id.replace(/^claude-/, '').replace(/-\d{8}$/, '')
 }
 
+// A name without control characters. A folder name, a memory file path or an MCP server name can hold one, and the engine
+// refuses a tree whose Text holds a control character other than tab and newline. A name is one line, so tab and newline go too
+export function printable(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+}
+
 export function repoName(root: string): string {
   const trimmed = (root ?? '').replace(/\/\.(claude\/)?worktrees\/[^/]+\/?$/, '').replace(/\/+$/, '')
-  const name = trimmed.split('/').pop() ?? ''
+  const name = printable(trimmed.split('/').pop() ?? '')
   return name === '' ? 'unknown' : name
 }
 
@@ -82,9 +88,10 @@ export function desktopCells(text: string): number {
   return sum / 100
 }
 
-// Pads a text to the column width; a cut text ends in an ellipsis, and one space always stays free
+// Pads a text to the column width; a cut text ends in an ellipsis, and one space always stays free.
+// The control characters go first, so that a snapshot that an older version stored with one still draws, and the width stays right
 export function cell(text: string, column: Column): string {
-  let chars = Array.from(text)
+  let chars = Array.from(printable(text))
   const room = column.width - 1
   if (chars.length > room) chars = [...chars.slice(0, Math.max(0, room - 1)), '…']
   const gap = ' '.repeat(column.width - chars.length)
@@ -95,12 +102,14 @@ export function cell(text: string, column: Column): string {
 export const ESTIMATE_MARK = ' ≈'
 
 // A name with the estimate mark after it. A name that is too long for the column is cut with an ellipsis, and the mark stays whole.
-// The result fits the column with the one free cell that cell() keeps, so cell() does not cut it again
+// The result fits the column with the one free cell that cell() keeps, so cell() does not cut it again.
+// The control characters go before the count, as in cell()
 export function markedCell(name: string, column: Column): string {
   const room = column.width - 1
-  const chars = Array.from(name)
+  const clean = printable(name)
+  const chars = Array.from(clean)
   const mark = Array.from(ESTIMATE_MARK).length
-  if (chars.length + mark <= room) return name + ESTIMATE_MARK
+  if (chars.length + mark <= room) return clean + ESTIMATE_MARK
   return chars.slice(0, Math.max(0, room - mark - 1)).join('') + '…' + ESTIMATE_MARK
 }
 
