@@ -1,4 +1,4 @@
-import type { Breakdown, BreakdownRow, Cause, Causes, Counts, Hours, Limit, Main, Reading, Run, Snapshot, Totals } from '../types'
+import type { Breakdown, BreakdownRow, Cause, Causes, Counts, Hours, Limit, Main, MainRequest, Reading, Run, Snapshot, Totals, Ttl } from '../types'
 import { shortModel } from './format'
 import { priceInfo, tokens, type UsageLike } from './prices'
 
@@ -11,7 +11,7 @@ const WORKING_MS = 10 * 60_000
 
 export const EMPTY: Counts = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, requests: 0, cost: 0 }
 export const NO_CAUSES: Causes = { start: { tokens: 0, cost: 0 }, growth: { tokens: 0, cost: 0 }, resume: { tokens: 0, cost: 0 } }
-export const NO_MAIN: Main = { model: '', lastRequestAt: null, contextTokens: 0, isWorking: false, requestTimes: [], resumes: [] }
+export const NO_MAIN: Main = { model: '', lastRequestAt: null, ttl: null, contextTokens: 0, isWorking: false, requests: [], resumes: [] }
 
 export type Row = { model: string; scope: string; counts: Counts }
 // isUnpriced: the model has no price. isEstimated: the cost uses the fallback price of the newest model of the family
@@ -25,6 +25,7 @@ export type NowRow = {
   model: string
   contextTokens: number
   lastMainRequestAt: number | null
+  mainTtl: Ttl | null
   isWorking: boolean
   last60: number
   today: number
@@ -91,14 +92,26 @@ export function contextOf(c: Counts): number {
   return c.input + c.cacheRead + c.cacheWrite + c.output
 }
 
-export function mainAfter(main: Main, model: string, now: number, contextTokens: number, cause: Cause, writeCost: number): Main {
+// The main requests of the last 4 hours. State of an older version of the mod has requestTimes and no lifetimes: those times count with 1 hour, the lifetime it assumed
+export function requestsOf(main: Main): MainRequest[] {
+  if (Array.isArray(main.requests)) return main.requests
+  const old = (main as { requestTimes?: unknown }).requestTimes
+  return Array.isArray(old) ? old.filter(isNum).map((at) => ({ at, ttl: '1h' as const })) : []
+}
+
+// ttl: the lifetime that the cost of the request used. known: the confirmed lifetime, or null, for the tube.
+// A request that neither reads nor writes the cache (isCached false) refreshes no cache: the tube, the strip and the resumes stay
+export function mainAfter(main: Main, model: string, now: number, contextTokens: number, cause: Cause, writeCost: number, ttl: Ttl, known: Ttl | null, isCached: boolean = true): Main {
   const since = now - STRIP_MS
+  const requests = requestsOf(main).filter((r) => r.at >= since)
+  if (!isCached) return { ...main, model, contextTokens, requests }
   return {
     ...main,
     model,
     lastRequestAt: now,
+    ttl: known,
     contextTokens,
-    requestTimes: [...main.requestTimes.filter((t) => t >= since), now],
+    requests: [...requests, { at: now, ttl }],
     resumes: [...main.resumes.filter((r) => r.at >= since), ...(cause === 'resume' ? [{ at: now, cost: writeCost }] : [])],
   }
 }
@@ -171,6 +184,7 @@ export function snapshotOf(run: Run, main: Main, readings: Reading[], hours: Hou
     model: main.model,
     updatedAt: now,
     lastMainRequestAt: main.lastRequestAt,
+    mainTtl: main.ttl ?? null,
     contextTokens: main.contextTokens,
     isWorking: main.isWorking,
     readings: readings.filter((r) => r.kind === 'seven_day' && r.at >= now - KEEP_MS),
@@ -184,6 +198,7 @@ export function parseSnapshot(x: unknown): Snapshot | null {
   if (!isNum(x.updatedAt) || !isNum(x.contextTokens) || typeof x.isWorking !== 'boolean') return null
   if (!(x.lastMainRequestAt === null || isNum(x.lastMainRequestAt))) return null
   if (!Array.isArray(x.readings) || !isObj(x.hours)) return null
+  if (!(x.mainTtl === undefined || x.mainTtl === null || x.mainTtl === '5m' || x.mainTtl === '1h')) return null
   return x as unknown as Snapshot
 }
 
@@ -229,6 +244,7 @@ export function nowRows(snaps: Snapshot[], currentKey: string, now: number): Now
       model: s.model,
       contextTokens: s.contextTokens,
       lastMainRequestAt: s.lastMainRequestAt,
+      mainTtl: s.mainTtl ?? null,
       isWorking: s.isWorking && now - s.updatedAt <= WORKING_MS,
       last60: last60(s.hours, now),
       today: today(s.hours, now),

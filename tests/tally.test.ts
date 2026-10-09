@@ -29,6 +29,8 @@ import {
   weekOf,
 } from '../hooks/tally'
 
+import { requestsOf } from '../hooks/tally'
+import type { Main } from '../types'
 const T0 = Date.UTC(2026, 9, 6, 12, 0, 0)
 const MIN = 60_000
 const FABLE = { model: 'claude-fable-5-1', input_tokens: 2, output_tokens: 1000, cache_read_input_tokens: 400_000, cache_creation_input_tokens: 10_000 }
@@ -65,11 +67,11 @@ test('causeOf classifies start, growth and resume', async () => {
 })
 
 test('mainAfter keeps 4 hours of request times and records a resume', async () => {
-  const first = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2)
-  const second = mainAfter(first, 'claude-fable-5-1', T0 + 300 * MIN, 420_000, 'resume', 7.6)
+  const first = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2, '1h', '1h')
+  const second = mainAfter(first, 'claude-fable-5-1', T0 + 300 * MIN, 420_000, 'resume', 7.6, '1h', '1h')
   expect(second.lastRequestAt).toBe(T0 + 300 * MIN)
   expect(second.contextTokens).toBe(420_000)
-  expect(second.requestTimes).toEqual([T0 + 300 * MIN])
+  expect(second.requests.map((r) => r.at)).toEqual([T0 + 300 * MIN])
   expect(second.resumes).toEqual([{ at: T0 + 300 * MIN, cost: 7.6 }])
 })
 
@@ -101,7 +103,7 @@ test('rowsOf puts main first, and the sums add up', async () => {
 })
 
 test('snapshotOf and parseSnapshot round-trip, and parseSnapshot refuses bad values', async () => {
-  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0)
+  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0, '1h', '1h')
   const s = snapshotOf(RUN, main, [], { '2026-10-06T12': { 'claude-fable-5-1|main': counts(1) } }, T0)
   expect(s.key).toBe(runKey(RUN))
   expect(s.key).toBe('run:sess-1:' + T0)
@@ -114,7 +116,7 @@ test('snapshotOf and parseSnapshot round-trip, and parseSnapshot refuses bad val
 })
 
 test('snapshotOf keeps only the seven_day readings of the last 8 days', async () => {
-  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0)
+  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0, '1h', '1h')
   const readings = [
     { at: T0 - 9 * DAY_MS, kind: 'seven_day', percentUsed: 10 },
     { at: T0 - 60 * MIN, kind: 'seven_day', percentUsed: 41 },
@@ -276,4 +278,39 @@ test('breakdownOf keeps used categories, loaded MCP tools by server and the 10 l
   expect(b.memoryFiles[0]).toEqual({ name: 'f11', tokens: 11 })
   expect(b.mcpServers).toEqual([{ name: 'linear', tokens: 11 }])
   expect(b.agents).toEqual([{ name: 'second-opinion', tokens: 300 }])
+})
+
+test('mainAfter keeps the cache life of each request, and a request without cache leaves the cache as it was', async () => {
+  const first = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2, '5m', '5m')
+  expect(first.requests).toEqual([{ at: T0, ttl: '5m' }])
+  expect(first.ttl).toBe('5m')
+  const second = mainAfter(first, 'claude-fable-5-1', T0 + MIN, 510, 'growth', 0, '1h', null, false)
+  expect(second.lastRequestAt).toBe(T0)
+  expect(second.ttl).toBe('5m')
+  expect(second.requests).toEqual([{ at: T0, ttl: '5m' }])
+  expect(second.contextTokens).toBe(510)
+})
+
+test('the state of an older version keeps its request times with the 1-hour cache life', async () => {
+  const old = { model: 'claude-fable-5-1', lastRequestAt: T0, contextTokens: 1, isWorking: false, requestTimes: [T0 - MIN, T0], resumes: [] } as unknown as Main
+  expect(requestsOf(old)).toEqual([
+    { at: T0 - MIN, ttl: '1h' },
+    { at: T0, ttl: '1h' },
+  ])
+  expect(mainAfter(old, 'claude-fable-5-1', T0 + MIN, 1, 'growth', 0, '5m', '5m').requests).toEqual([
+    { at: T0 - MIN, ttl: '1h' },
+    { at: T0, ttl: '1h' },
+    { at: T0 + MIN, ttl: '5m' },
+  ])
+})
+
+test('a snapshot carries the cache life of the main conversation, and an older snapshot without it reads as unknown', async () => {
+  const run = { sessionId: 's', startedAt: T0, repo: 'webshop' }
+  const snap = snapshotOf(run, mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 1, 'start', 0, '5m', '5m'), [], {}, T0)
+  expect(snap.mainTtl).toBe('5m')
+  expect(parseSnapshot(snap)).not.toBeNull()
+  const { mainTtl, ...old } = snap
+  expect(mainTtl).toBe('5m')
+  expect(nowRows([parseSnapshot(old)!], '', T0)[0].mainTtl).toBeNull()
+  expect(parseSnapshot({ ...snap, mainTtl: '2h' })).toBeNull()
 })

@@ -597,7 +597,8 @@ test('the tab keys switch to Session, Week and Why', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '-4 h' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^reported\s+$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^by \/cost\s+$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^\s*\$39\.20$/ })).toBeDefined()
+  // The stub books the request in the session cost: $39.20 and $0.35 for the Fable request at the 1-hour price
+  expect(await ui.find({ type: 'Text', text: /^\s*\$39\.55$/ })).toBeDefined()
   await ui.press({ key: 'tab-3' })
   expect(await ui.find({ type: 'Text', text: /^week\s+$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^\s+41%$/ })).toBeDefined()
@@ -1240,4 +1241,156 @@ test('a typed full model id goes to the call as typed, with its exact price and 
   expect(await ui.find({ type: 'Text', text: ' at API prices of opus-5-5, with the full output cap' })).toBeDefined()
   await ui.press({ key: 'recommend-ask' })
   expect(h.modelCalls[0].model).toBe('claude-opus-5-5')
+})
+
+// The cache life: the band reads it from the cost that the stub books for each request, as Claude Code books it
+
+test('the band counts down 5 minutes when Claude Code books the request at the 5-minute price', async ($, on) => {
+  const h = harness(on, { booking: { main: '5m' } })
+  await start($)
+  await step($, FABLE)
+  await complete($)
+  await h.clock.advance(3 * MIN)
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'WARM' })).toBeDefined()
+  // The re-warm cost uses the 5-minute write price: 411k at 12.5 per million
+  expect(await ui.find({ type: 'Text', text: ' 2m left · 411k cached · $5.14 to re-warm' })).toBeDefined()
+  await ui.unmount()
+  await h.clock.advance(3 * MIN)
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'COLD' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 1m · next message re-writes 411k ≈ $5.14' })).toBeDefined()
+})
+
+test('the band shows no countdown when the booked cost fits no cache life, and COLD after 1 hour', async ($, on) => {
+  const h = harness(on, { booking: { main: 'other' } })
+  await start($)
+  await step($, FABLE)
+  await complete($)
+  await h.clock.advance(13 * MIN)
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'cache life unknown · last request 13m ago' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'HOT' })).toBeUndefined()
+  await ui.unmount()
+  // After the longest life the cache is cold for both lives. The re-warm cost uses the default of the main conversation, 1 hour
+  await h.clock.advance(62 * MIN)
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'COLD' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 15m · next message re-writes 411k ≈ $8.22' })).toBeDefined()
+})
+
+test('one booking at another cache life changes nothing, and a second one in a row changes the life', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  h.booking.main = '5m'
+  await h.clock.advance(MIN)
+  await step($, FABLE)
+  await complete($)
+  await h.clock.advance(MIN)
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: ' 59m left · 411k cached · $8.22 to re-warm' })).toBeDefined()
+  await ui.unmount()
+  await step($, FABLE)
+  await complete($)
+  await h.clock.advance(MIN)
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: ' 4m left · 411k cached · $5.14 to re-warm' })).toBeDefined()
+})
+
+test('a cost that another request books inside the window fits no cache life', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  h.ledger.during = 0.01
+  await step($, FABLE)
+  await complete($)
+  await h.clock.advance(MIN)
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'cache life unknown · last request 1m ago' })).toBeDefined()
+  await ui.unmount()
+  // A cost booked before a request starts does not count for it
+  h.ledger.usd += 0.01
+  await step($, FABLE)
+  await complete($)
+  await h.clock.advance(MIN)
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: ' 59m left · 411k cached · $8.22 to re-warm' })).toBeDefined()
+})
+
+test('a resumed conversation proves the cache life when Claude Code says the cache is warm or expired', async ($, on) => {
+  harness(on)
+  await start($)
+  const resume = { source: 'resume', context_tokens: 380_000, model: 'claude-opus-5-5' } as const
+  // Warm after 10 minutes: the life is 1 hour
+  await $.classic.SessionStart({ ...resume, seconds_since_last_response: 600, prompt_cache_likely_expired: false })
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: ' 50m left · 380k cached · $3.04 to re-warm' })).toBeDefined()
+  await ui.unmount()
+  // Expired after 10 minutes: the life is 5 minutes
+  await $.classic.SessionStart({ ...resume, seconds_since_last_response: 600, prompt_cache_likely_expired: true })
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'COLD' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 5m · next message re-writes 380k ≈ $1.90' })).toBeDefined()
+  await ui.unmount()
+  // Warm after 2 minutes: both lives fit
+  await $.classic.SessionStart({ ...resume, seconds_since_last_response: 120, prompt_cache_likely_expired: false })
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'cache life unknown · last request 2m ago' })).toBeDefined()
+})
+
+test('the cache life that Claude Code names at a model switch counts from the next request', async ($, on) => {
+  const h = harness(on, { booking: { main: 'other' } })
+  await start($)
+  await step($, FABLE)
+  await $.classic.PostModelSwitch({ from_model: 'claude-opus-5-5', to_model: 'claude-fable-5-1', requested_model: 'fable', source: 'command', context_tokens: 411_002, prompt_cache_warm: true, cache_ttl: '5m', estimated_cache_write_usd: 5.14, pricing: 'catalog' })
+  await step($, FABLE)
+  await complete($)
+  await h.clock.advance(MIN)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: ' 4m left · 411k cached · $5.14 to re-warm' })).toBeDefined()
+})
+
+test('a request that neither reads nor writes the cache leaves the tube as it was', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  await h.clock.advance(10 * MIN)
+  await step($, { model: 'claude-fable-5-1', input_tokens: 500, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })
+  await complete($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^ 50m left · / })).toBeDefined()
+})
+
+// The share of the resume row in the cause table of tab 2
+async function resumeShare($: any): Promise<string> {
+  await $.command.run({ command: 'token-watch', args: '' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.press({ key: 'tab-2' })
+  const tableRows = (await pane.findAll({ type: 'Box' })).filter((b: any) => b.props.flexDirection === 'row' && b.props.width === undefined)
+  const rows = tableRows.filter((b: any) => /^resume\s+$/.test(textOf(b.children[0])))
+  return textOf(rows[0].children[4])
+}
+
+test('a pause longer than a 5-minute cache life makes the next cache write a resume', async ($, on) => {
+  const h = harness(on, { booking: { main: '5m' } })
+  await start($)
+  await step($, FABLE)
+  await h.clock.advance(6 * MIN)
+  await step($, FABLE)
+  await complete($)
+  expect(await resumeShare($)).toBe('   50%')
+})
+
+test('the pause counts against the life of the cache that the previous request left', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  // The first booking at 5 minutes waits for a second one, so this request still writes with 1 hour
+  h.booking.main = '5m'
+  await step($, FABLE)
+  await h.clock.advance(10 * MIN)
+  // This request confirms 5 minutes, but the cache that it reads has the life of the request before: 1 hour, so the pause is no resume
+  await step($, FABLE)
+  await complete($)
+  expect(await resumeShare($)).toBe('    0%')
 })

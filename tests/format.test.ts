@@ -25,6 +25,7 @@ import {
   weekDayNames,
 } from '../hooks/format'
 
+import { unknownLabel } from '../hooks/format'
 const MIN = 60_000
 const HOUR = 60 * MIN
 
@@ -467,4 +468,12 @@ test('placeMarks drops the list when there is no room for even one cell of it', 
   const none = placeMarks([mark(0, '$1.00'), mark(1, '$2.00'), mark(47, '$3.00')], 49)
   expect(none.marks).toEqual([{ cell: 0, cost: null }, { cell: 1, cost: '$2.00' }, { cell: 47, cost: null }])
   expect(none.list).toBeNull()
+})
+
+test('tubeLabel counts down the cache life, and unknownLabel gives the time since the last request', async () => {
+  const t0 = Date.UTC(2026, 9, 6, 12, 0)
+  expect(tubeLabel('HOT', t0, t0 + MIN, 411_002, 5.14, false, '5m')).toBe('4m left · 411k cached · $5.14 to re-warm')
+  // An unknown life counts the cold minutes from the end of the longest life
+  expect(tubeLabel('COLD', t0, t0 + 75 * MIN, 411_002, 8.22, false, null)).toBe('15m · next message re-writes 411k ≈ $8.22')
+  expect(unknownLabel(t0, t0 + 13 * MIN + 59_000)).toBe('cache life unknown · last request 13m ago')
 })

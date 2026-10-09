@@ -1,12 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { Counts, Run, Snapshot } from '../types'
+import type { Counts, Run, Snapshot, Ttl } from '../types'
 import { repoName } from './format'
-import { costOf, priceInfo, tokens, writeCostOf } from './prices'
+import { costOf, matchLifetime, priceInfo, writeCostOf } from './prices'
 import { OUTPUT_CAP, RECOMMEND_EFFORT, RECOMMEND_SCOPE, RECOMMEND_SYSTEM, RECOMMEND_TIMEOUT_MS, drawableText, estimateTokens, failureText, maxCostOf, modelOption, priceModelOf, recommendPrompt, type CallUsage } from './recommend'
-import { MAIN_TTL_MS, SUB_TTL_MS } from './temperature'
-import { KEEP_MS, NO_CAUSES, NO_MAIN, addCause, addReadings, addTo, breakdownOf, causeOf, contextOf, countsOf, hourKey, mainAfter, nowRows, parseSnapshot, rowsOf, runKey, snapshotOf, sumAll } from './tally'
+import { NO_LIFETIME, TTL_MS, confirmLifetime, defaultTtl, ttlFromResume } from './temperature'
+import { KEEP_MS, NO_CAUSES, NO_MAIN, addCause, addReadings, addTo, breakdownOf, causeOf, contextOf, countsOf, hourKey, mainAfter, nowRows, parseSnapshot, requestsOf, rowsOf, runKey, snapshotOf, sumAll } from './tally'
 import { bandData, bandEls, helpEls, nowEls, paneEls, recommendEls, sessionEls, tabsEls, weekData, weekEls, whyEls, type Els } from './view'
 
 const run = atom({ plugin: 'token-watch', key: 'run' } as const, null)
@@ -18,6 +18,8 @@ const limitsAt = atom({ plugin: 'token-watch', key: 'limitsAt' } as const, null)
 const readings = atom({ plugin: 'token-watch', key: 'readings' } as const, [])
 const agents = atom({ plugin: 'token-watch', key: 'agents' } as const, {})
 const threads = atom({ plugin: 'token-watch', key: 'threads' } as const, {})
+const threadTtls = atom({ plugin: 'token-watch', key: 'threadTtls' } as const, {})
+const lifetimes = atom({ plugin: 'token-watch', key: 'lifetimes' } as const, {})
 const hours = atom({ plugin: 'token-watch', key: 'hours' } as const, {})
 const breakdown = atom({ plugin: 'token-watch', key: 'breakdown' } as const, null)
 const others = atom({ plugin: 'token-watch', key: 'others' } as const, [])
@@ -47,6 +49,19 @@ const STALE_ASK = 'The call stopped: the mod loaded again while the call ran. Ru
 let isDirty = false
 // Stops the running call of /token-watch recommend when the dialog closes
 let stopRecommend: AbortController | null = null
+// The last session cost that the mod has read, in USD. A module variable and not $.state: bookedSince reads and writes it with no await
+// in between, so two requests that end together never both count from one old value. A reload starts it over; the next reading sets it again
+let costSeen: number | null = null
+
+// The cost that Claude Code booked since the last reading of any request, or null. A lower reading (the session cost started again,
+// or a late reading) starts the count over. The first reading only sets the start
+function bookedSince(usd: number | null): number | null {
+  if (usd === null) return null
+  const before = costSeen
+  costSeen = usd
+  if (before === null || usd < before) return null
+  return usd - before
+}
 
 async function newRun($: any): Promise<Run> {
   const next: Run = { sessionId: await $.session.id(), startedAt: await $.clock.now(), repo: repoName(await $.session.root()) }
@@ -310,7 +325,8 @@ async function openRecommend($: any, model: string): Promise<{ text?: string }> 
     totals: await read($, totals),
     causes: await read($, causes),
     usd: await sessionCost($),
-    requestTimes: m.requestTimes,
+    requests: requestsOf(m),
+    mainTtl: m.ttl ?? null,
     resumes: m.resumes,
     limits: await read($, limits),
     limitsAt: await read($, limitsAt),
@@ -369,7 +385,7 @@ async function askRecommend($: any): Promise<void> {
 async function countRecommend($: any, priceModel: string, usage: CallUsage | undefined): Promise<Counts | null> {
   if (!usage) return null
   const record = { model: priceModel, ...usage }
-  const counts = countsOf(record, costOf(record, true))
+  const counts = countsOf(record, costOf(record, '5m'))
   if (counts.input + counts.output + counts.cacheRead + counts.cacheWrite === 0) return null
   const at = await $.clock.now()
   await update($, totals, (t) => addTo(t, priceModel, RECOMMEND_SCOPE, counts))
@@ -401,6 +417,7 @@ async function resetConversation($: any): Promise<void> {
   await update($, causes, () => NO_CAUSES)
   await update($, main, () => NO_MAIN)
   await update($, threads, () => ({}))
+  await update($, threadTtls, () => ({}))
   await update($, agents, () => ({}))
   await update($, readings, () => [])
   await update($, hours, () => ({}))
@@ -410,7 +427,7 @@ async function resetConversation($: any): Promise<void> {
 }
 
 // A resumed conversation brings the time of its last response, so the cache temperature is right at once
-async function seedResumed($: any, e: { seconds_since_last_response?: unknown; context_tokens?: unknown; model?: unknown }): Promise<void> {
+async function seedResumed($: any, e: { seconds_since_last_response?: unknown; prompt_cache_likely_expired?: unknown; context_tokens?: unknown; model?: unknown }): Promise<void> {
   const seconds = e.seconds_since_last_response
   const context = e.context_tokens
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return
@@ -426,8 +443,11 @@ async function seedResumed($: any, e: { seconds_since_last_response?: unknown; c
       // The model stays empty until the first request
     }
   }
-  await update($, main, (m) => ({ ...m, lastRequestAt: at, contextTokens: context, ...(model !== '' ? { model } : {}) }))
+  // Claude Code says whether the cache expired, which can prove the life of the last cache. It proves nothing about the life of the next requests
+  const ttl = ttlFromResume(seconds, e.prompt_cache_likely_expired)
+  await update($, main, (m) => ({ ...m, lastRequestAt: at, ttl, contextTokens: context, ...(model !== '' ? { model } : {}) }))
   await update($, threads, (t) => ({ ...t, main: at }))
+  if (ttl !== null) await update($, threadTtls, (t) => ({ ...t, main: ttl }))
 }
 
 export const register: Register = (on, options) => {
@@ -469,6 +489,7 @@ export const register: Register = (on, options) => {
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     // The limits of the session come from its last API response, which can be older than the new conversation: they keep the time of the last reading
     const lastReadAt = await read($, limitsAt)
+    costSeen = null
     await newRun($)
     await resetConversation($)
     if (e.source === 'resume' || e.source === 'fork') await seedResumed($, e)
@@ -488,6 +509,8 @@ export const register: Register = (on, options) => {
     let requestAt: number | undefined
     try {
       requestAt = await $.clock.now()
+      // The session cost before the request, so that a booking from before the request does not count for it
+      bookedSince(await sessionCost($))
       if (agentId === undefined) await update($, main, (m) => ({ ...m, isWorking: true }))
     } catch {
       // Observation only; the request goes on
@@ -496,18 +519,32 @@ export const register: Register = (on, options) => {
     try {
       const usage = result?.usage
       if (usage) {
+        // The session cost first, before any other await, so that few other bookings come in between
+        const booked = bookedSince(await sessionCost($))
         const at: number = requestAt ?? (await $.clock.now())
         const isSubagent = agentId !== undefined
         const scope = isSubagent ? await agentTypeOf($, agentId) : 'main'
         const thread = agentId ?? 'main'
-        const cause = causeOf((await read($, threads))[thread], at, isSubagent ? SUB_TTL_MS : MAIN_TTL_MS)
-        const counts = countsOf(usage, costOf(usage, isSubagent))
-        const writeCost = writeCostOf(usage.model, tokens(usage.cache_creation_input_tokens), isSubagent)
+        // The life of the cache writes: the one whose price gives the booked cost, confirmed by confirmLifetime. Before the first match, the default of Claude Code
+        const match = matchLifetime(usage, booked)
+        const written = await update($, lifetimes, (l) => ({ ...l, [scope]: confirmLifetime(l[scope] ?? NO_LIFETIME, match) }))
+        const known: Ttl | null = written[scope]?.known ?? null
+        const ttl = known ?? defaultTtl(isSubagent)
+        const counts = countsOf(usage, costOf(usage, ttl))
+        // A request that neither reads nor writes the cache leaves the cache as it was
+        const isCached = counts.cacheRead + counts.cacheWrite > 0
+        // The gap counts against the life of the cache that the previous request of the thread left
+        const previousTtl = (await read($, threadTtls))[thread] ?? ttl
+        const cause = causeOf((await read($, threads))[thread], at, TTL_MS[previousTtl])
+        const writeCost = writeCostOf(usage, ttl)
         await update($, totals, (t) => addTo(t, usage.model, scope, counts))
         await update($, causes, (c) => addCause(c, cause, counts.cacheWrite, writeCost))
-        await update($, threads, (t) => ({ ...t, [thread]: at }))
+        if (isCached) {
+          await update($, threads, (t) => ({ ...t, [thread]: at }))
+          await update($, threadTtls, (t) => ({ ...t, [thread]: ttl }))
+        }
         await update($, hours, (h) => addTo(h, hourKey(at), usage.model + '|' + scope, counts))
-        if (!isSubagent) await update($, main, (m) => mainAfter(m, usage.model, at, contextOf(counts), cause, writeCost))
+        if (!isSubagent) await update($, main, (m) => mainAfter(m, usage.model, at, contextOf(counts), cause, writeCost, ttl, known, isCached))
         isDirty = true
       }
     } catch {
@@ -515,6 +552,13 @@ export const register: Register = (on, options) => {
     }
     return result
   })
+
+  // At a model switch Claude Code names the cache life of the main conversation. That is a reading, so it replaces the life from the costs
+  on('classic.PostModelSwitch', async ($, e, next) => {
+    const ttl = e.cache_ttl
+    if (ttl === '5m' || ttl === '1h') await update($, lifetimes, (l) => ({ ...l, main: { known: ttl, pending: null } }))
+    return next(e)
+  }).catch(($, e, next) => next(e)) // Observation only; the switch goes on
 
   on('turn.complete', async ($, e, next) => {
     try {
@@ -593,7 +637,7 @@ export const register: Register = (on, options) => {
     if (current === 2) {
       const t = await read($, totals)
       const m = await read($, main)
-      body = sessionEls(E, { rows: rowsOf(t), total: sumAll(t), causes: await read($, causes), requestTimes: m.requestTimes, resumes: m.resumes, now, usd: await sessionCost($) }, e.props.bodyColumns, e.surface)
+      body = sessionEls(E, { rows: rowsOf(t), total: sumAll(t), causes: await read($, causes), requests: requestsOf(m), resumes: m.resumes, now, usd: await sessionCost($) }, e.props.bodyColumns, e.surface)
     } else if (current === 4) {
       body = whyEls(E, await read($, breakdown), e.props.bodyColumns, e.surface)
     } else {

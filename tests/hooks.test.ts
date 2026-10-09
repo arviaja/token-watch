@@ -52,8 +52,8 @@ test('requests of the main conversation and of a subagent go into the hourly buc
   await step($, SONNET, 'agent-Explore')
   await end($)
   const hour = snapshotIn(h.store).hours['2026-10-06T12']
-  expect(hour['claude-fable-5-1|main']).toEqual({ input: 2, output: 1000, cacheRead: 400_000, cacheWrite: 10_000, requests: 1, cost: costOf(FABLE, false) })
-  expect(hour['claude-sonnet-5-5|Explore'].cost).toBe(costOf(SONNET, true))
+  expect(hour['claude-fable-5-1|main']).toEqual({ input: 2, output: 1000, cacheRead: 400_000, cacheWrite: 10_000, requests: 1, cost: costOf(FABLE, '1h') })
+  expect(hour['claude-sonnet-5-5|Explore'].cost).toBe(costOf(SONNET, '5m'))
 })
 
 test('a request of a model without an exact price is counted with the price of the newest model of its family', async ($, on) => {
@@ -65,7 +65,7 @@ test('a request of a model without an exact price is counted with the price of t
   const cell = snapshotIn(h.store).hours['2026-10-06T12']['claude-opus-5-6|main']
   // claude-opus-5-5: input 4 and 1-hour write 8 per million tokens
   expect(cell.cost).toBe(12)
-  expect(cell.cost).toBe(costOf(NEW_OPUS, false))
+  expect(cell.cost).toBe(costOf(NEW_OPUS, '1h'))
 })
 
 test('a subagent request without a known type counts under the scope subagent', async ($, on) => {
@@ -293,7 +293,7 @@ test('the usage of the call goes into the hours of the snapshot under the scope 
   const hour = snapshotIn(h.store).hours['2026-10-06T12']
   const usage = { model: 'claude-sonnet', ...REPLY_USAGE }
   // The call has no cache of a conversation: a cache write would have the 5-minute price, as in a subagent
-  expect(hour['claude-sonnet|recommend']).toEqual({ input: 2_400, output: 800, cacheRead: 0, cacheWrite: 0, requests: 1, cost: costOf(usage, true) })
+  expect(hour['claude-sonnet|recommend']).toEqual({ input: 2_400, output: 800, cacheRead: 0, cacheWrite: 0, requests: 1, cost: costOf(usage, '5m') })
   expect(hour['claude-sonnet|recommend'].cost).toBeGreaterThan(0)
   expect(hour['claude-fable-5-1|main'].requests).toBe(1)
 })
@@ -453,4 +453,50 @@ test('band on shows a band that the × hid in this session, also when the store 
   expect(h.toasts.at(-1)).toMatch(/^The band setting was not saved: /)
   await $.command.run({ command: 'token-watch', args: 'band' })
   expect(h.toasts.at(-1)).toBe('The band is on. /token-watch band off hides it.')
+})
+
+test('a request that Claude Code books at the 5-minute price costs that price, and the snapshot carries the cache life', async ($, on) => {
+  const h = harness(on, { booking: { main: '5m' } })
+  await start($)
+  await step($, FABLE)
+  await end($)
+  const snap = snapshotIn(h.store)
+  expect(snap.hours['2026-10-06T12']['claude-fable-5-1|main'].cost).toBe(costOf(FABLE, '5m'))
+  expect(snap.mainTtl).toBe('5m')
+})
+
+test('a booked cost that fits no cache life keeps the default price and an unknown cache life', async ($, on) => {
+  const h = harness(on, { booking: { main: 'other' } })
+  await start($)
+  await step($, FABLE)
+  await end($)
+  const snap = snapshotIn(h.store)
+  expect(snap.hours['2026-10-06T12']['claude-fable-5-1|main'].cost).toBe(costOf(FABLE, '1h'))
+  expect(snap.mainTtl).toBeNull()
+})
+
+test('a subagent whose requests Claude Code books at the 1-hour price costs that price', async ($, on) => {
+  const h = harness(on, { booking: { subagent: '1h' } })
+  await start($)
+  await spawn($, 'Explore')
+  await step($, SONNET, 'agent-Explore')
+  await end($)
+  expect(snapshotIn(h.store).hours['2026-10-06T12']['claude-sonnet-5-5|Explore'].cost).toBe(costOf(SONNET, '1h'))
+})
+
+test('a session cost that falls while a request runs matches no cache life, and the count starts over from there', async ($, on) => {
+  const h = harness(on)
+  await start($)
+  await step($, FABLE)
+  h.booking.main = '5m'
+  // The count of the session cost starts again while the request runs: its reading is lower than the one before, so it matches nothing
+  h.ledger.during = -h.ledger.usd
+  await step($, FABLE)
+  // The first 5-minute match after the drop waits for a second one
+  await step($, FABLE)
+  await end($)
+  expect(snapshotIn(h.store).mainTtl).toBe('1h')
+  await step($, FABLE)
+  await end($)
+  expect(snapshotIn(h.store).mainTtl).toBe('5m')
 })

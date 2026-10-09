@@ -13,7 +13,7 @@ function isObject(x) {
 }
 
 // A copy of the keys of the table PRICES, in the same order. A new key goes into both lists
-export const PRICE_KEYS = ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-4-5']
+export const PRICE_KEYS = ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-5-5', 'claude-haiku-4-5']
 
 export function baseModel(model) {
   return model.replace(/\[.*\]$/, '').replace(/-\d{8}$/, '')

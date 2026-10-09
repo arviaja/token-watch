@@ -13,7 +13,7 @@ const SONNET = { model: 'claude-sonnet-5-5', input_tokens: 5, output_tokens: 300
 const RESETS_AT = '2026-10-11T09:00:00.000Z'
 
 const NO_WEEK: WeekData = { percent: null, resetAt: null, projection: '', start: T0 - 7 * 24 * HOUR, history: [], byRepo: [], byModelScope: [], total: 0 }
-const EMPTY: RecommendInput = { now: T0, totals: {}, causes: NO_CAUSES, usd: null, requestTimes: [], resumes: [], limits: [], limitsAt: null, week: NO_WEEK, breakdown: null }
+const EMPTY: RecommendInput = { now: T0, totals: {}, causes: NO_CAUSES, usd: null, requests: [], mainTtl: null, resumes: [], limits: [], limitsAt: null, week: NO_WEEK, breakdown: null }
 
 function full(): RecommendInput {
   let totals = addTo({}, 'claude-fable-5-1', 'main', countsOf(FABLE, 3))
@@ -45,7 +45,11 @@ function full(): RecommendInput {
     totals,
     causes,
     usd: 5.5,
-    requestTimes: [T0 - 100 * MIN, T0 - 5 * MIN],
+    requests: [
+      { at: T0 - 100 * MIN, ttl: '1h' },
+      { at: T0 - 5 * MIN, ttl: '1h' },
+    ],
+    mainTtl: '1h',
     resumes: [{ at: T0 - 5 * MIN, cost: 0.75 }],
     limits: [
       { kind: 'five_hour', percentUsed: 12 },
@@ -158,7 +162,7 @@ test('the prompt holds the data of the tabs in fixed sections', async () => {
   expect(prompt).toContain('Highest weekly percent of each 12 hours, oldest first: no reading, 33%.')
   expect(prompt).toContain('Cost by repo: webshop $30.00 (75%), billing-service $10.00 (25%).')
   expect(prompt).toContain('Cost by model and scope: fable-5-1 main $30.00 (75%), mythos-1 main no price.')
-  expect(prompt).toContain('- sonnet-5-5: input 2, cache write 4 (1 hour) or 2.5 (5 minutes), cache read 0.2, output 10')
+  expect(prompt).toContain('- sonnet-5-5: input 2, cache write 4 (1 hour) or 2.5 (5 minutes), cache read 0.1, output 10')
   expect(prompt.endsWith('\n')).toBe(false)
 })
 
@@ -191,4 +195,12 @@ test('a text for the dialog loses its control characters and is cut at 10000 cha
   const emoji = drawableText('\u{1F600}'.repeat(6_000))
   expect(emoji.length).toBeLessThanOrEqual(10_000)
   expect(emoji.replace('\n\n… (cut at 10,000 characters)', '').length % 2).toBe(0)
+})
+
+test('the prompt names the cache life of the main conversation and the higher Haiku price of a long prompt', async () => {
+  expect(recommendPrompt({ ...EMPTY, mainTtl: '5m' })).toContain('Cache life of the main conversation: 5 minutes.')
+  expect(recommendPrompt(EMPTY)).toContain('Cache life of the main conversation: unknown.')
+  expect(recommendPrompt(EMPTY)).toContain('- haiku-5-5: input 0.1, cache write 0.2 (1 hour) or 0.125 (5 minutes), cache read 0.01, output 0.5; for a prompt above 100k tokens: input 0.5, cache write 1 (1 hour) or 0.625 (5 minutes), cache read 0.05, output 2.5')
+  // The highest cost of a call with a long prompt uses the higher price
+  expect(Math.abs((maxCostOf(priceInfo('claude-haiku-5-5'), 200_000, 1000) ?? 0) - 0.1025)).toBeLessThan(1e-12)
 })

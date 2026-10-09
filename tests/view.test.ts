@@ -1,10 +1,11 @@
 import { expect, test } from 'claude-code/testing'
-import { cell, dayTime, fitColumns, historyCells, line, markedCell, type HistoryCell } from '../hooks/format'
+import { UNKNOWN_LIFE, cell, dayTime, fitColumns, historyCells, line, markedCell, type HistoryCell } from '../hooks/format'
 import { barSvg, heat, heatText, sparkSvg, stageOf, stripCells, stripSvg, tubeAlt, tubeCells } from '../hooks/temperature'
 import { EMPTY, NO_CAUSES, NO_MAIN, addTo, countsOf, mainAfter, type NowRow } from '../hooks/tally'
 import type { Breakdown, Recommend, Snapshot } from '../types'
 import { CAUSE_COLUMNS, HISTORY_COLUMNS, NOW_COLUMNS, SESSION_COLUMNS, TAB_LABELS, WEEK_COLUMNS, WHY_COLUMNS, bandCells as cellsOfBand, bandData, bandEls, barEls, cellTexts, helpEls, nowCells, nowEls, recommendEls, sessionCells, sessionEls, sparkEls, stripEls, svgBox, tableEls, tabsEls, weekData, weekEls, whyEls, type Els, type SessionData, type WeekData } from '../hooks/view'
 import { HELP_SECTIONS } from './help-text'
+import { reqs } from './helpers'
 
 type Node = { type: string; props: Record<string, any> }
 const E: Els = {
@@ -43,13 +44,13 @@ const LIMITS = [
 ]
 
 function oneRequest() {
-  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2)
+  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2, '1h', '1h')
   const totals = addTo({}, 'claude-fable-5-1', 'main', countsOf(FABLE, 3.11))
   return { main, totals }
 }
 
 function row(over: Partial<NowRow>): NowRow {
-  return { key: 'run:a:1', isCurrent: false, repo: 'webshop', model: 'claude-fable-5-1', contextTokens: 412_000, lastMainRequestAt: T0, isWorking: false, last60: 6.1, today: 48.2, ...over }
+  return { key: 'run:a:1', isCurrent: false, repo: 'webshop', model: 'claude-fable-5-1', contextTokens: 412_000, lastMainRequestAt: T0, mainTtl: '1h', isWorking: false, last60: 6.1, today: 48.2, ...over }
 }
 
 test('the band line has the tube with 10 cells, the label, the limits and the models, and no ctx part', async () => {
@@ -82,7 +83,7 @@ function bandCase(modelCount: number, isOld: boolean = false) {
   let totals = addTo({}, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
   if (modelCount > 1) totals = addTo(totals, 'claude-sonnet-5-5', 'main', countsOf(SONNET, 0.5))
   if (modelCount > 2) totals = addTo(totals, 'claude-fable-5-1', 'main', countsOf(FABLE, 0.1))
-  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2), isWorking: true }
+  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2, '1h', '1h'), isWorking: true }
   return bandData(main, totals, LIMITS_49, isOld ? T0 - 120 * MIN : T0, T0)!
 }
 
@@ -103,7 +104,7 @@ test('the band shows only the model with the highest cost, and a dimmed count of
   let totals = addTo({}, 'claude-sonnet-5-5', 'main', countsOf(sonnet, 0.5))
   totals = addTo(totals, 'claude-fable-5-1', 'main', countsOf(FABLE, 0.1))
   totals = addTo(totals, 'claude-opus-5-5', 'main', countsOf(opus, 2.5))
-  const main = mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 332_000, 'start', 0.2)
+  const main = mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 332_000, 'start', 0.2, '1h', '1h')
   const tree = bandEls(E, bandData(main, totals, [], null, T0 + 13 * MIN)!)
   expect(flat(tree)).toContain('| opus-5-5 r289k w43.1k o1.1k +2 models')
   expect(flat(tree)).not.toContain('sonnet')
@@ -306,7 +307,7 @@ const LIVE_TEXT = 'LIVE in turn · 296k cached'
 function projectedCase(limitsAt: number, now: number) {
   let totals = addTo({}, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
   totals = addTo(totals, 'claude-sonnet-5-5', 'main', countsOf(SONNET, 0.5))
-  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2), isWorking: true }
+  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2, '1h', '1h'), isWorking: true }
   return bandData(main, totals, PROJECTED_LIMITS, limitsAt, now)!
 }
 
@@ -325,7 +326,7 @@ test('the band shows the day and the time when each limit reaches 100%, after it
 })
 
 test('the band shows no projection for a limit that does not reach 100% before its reset, or that has no reset time', async () => {
-  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2), isWorking: true }
+  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2, '1h', '1h'), isWorking: true }
   const totals = addTo({}, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
   const slow = [
     { ...WEEK_LIMIT, percentUsed: 30 },
@@ -425,7 +426,7 @@ test('the band shows a cold cache and a live turn', async () => {
 
 test('the band shows the tokens of an unpriced model', async () => {
   const totals = addTo({}, 'unknown-model', 'main', countsOf({ ...FABLE, model: 'unknown-model' }, 0))
-  const main = mainAfter(NO_MAIN, 'unknown-model', T0, 411_002, 'start', 0)
+  const main = mainAfter(NO_MAIN, 'unknown-model', T0, 411_002, 'start', 0, '1h', '1h')
   expect(flat(bandEls(E, bandData(main, totals, [], null, T0 + 13 * MIN)!))).toContain('47m left · 411k cached | unknown-model r400k w10.0k o1.0k')
 })
 
@@ -468,7 +469,7 @@ const SESSION: SessionData = {
   ],
   total: { ...EMPTY, requests: 136, cacheRead: 43_000_000, cacheWrite: 2_000_000, output: 134_000, input: 1400, cost: 33.3 },
   causes: { start: { tokens: 300_000, cost: 1 }, growth: { tokens: 600_000, cost: 2 }, resume: { tokens: 300_000, cost: 1 } },
-  requestTimes: [T0 - 30 * MIN],
+  requests: reqs([T0 - 30 * MIN]),
   resumes: [{ at: T0 - 30 * MIN, cost: 7.6 }],
   now: T0,
   usd: 39.2,
@@ -604,7 +605,7 @@ test('on the desktop the Session tab holds four Svg in boxes with a width and no
   const tree = sessionEls(E, SESSION, undefined, 'desktop')
   const svgs = all(tree, 'Svg')
   expect(svgs.map((v) => v.props.alt)).toEqual(['share 25%', 'share 50%', 'share 25%', 'cache history of the last 4 hours'])
-  expect(svgs.map((v) => v.props.source)).toEqual([barSvg(0.25, 20), barSvg(0.5, 20), barSvg(0.25, 20), stripSvg(stripCells(SESSION.requestTimes, T0))])
+  expect(svgs.map((v) => v.props.source)).toEqual([barSvg(0.25, 20), barSvg(0.5, 20), barSvg(0.25, 20), stripSvg(stripCells(SESSION.requests, T0))])
   expect(svgs.every((v) => v.props.width === undefined && v.props.height === undefined)).toBe(true)
   const boxes = all(tree, 'Box').filter((b) => (b.props.children as Node[]).some((c) => c.type === 'Svg'))
   expect(boxes.map((b) => [b.props.width, b.props.flexShrink])).toEqual([[20, 0], [20, 0], [20, 0], [48, 0]])
@@ -703,7 +704,7 @@ test('the strip Svg has no triangle and is 14 high, with a resume, with two and 
   for (const resumes of [[], SESSION.resumes, [{ at: T0 - 100 * MIN, cost: 3 }, ...SESSION.resumes], [{ at: T0 - 300 * MIN, cost: 2 }]]) {
     const svg = strip(resumes)
     expect(svg.props.alt).toBe('cache history of the last 4 hours')
-    expect(svg.props.source).toBe(stripSvg(stripCells(SESSION.requestTimes, T0)))
+    expect(svg.props.source).toBe(stripSvg(stripCells(SESSION.requests, T0)))
     expect(svg.props.source).toContain('width="432" height="14" viewBox="0 0 432 14"')
     expect(svg.props.source).not.toContain('<polygon')
   }
@@ -772,7 +773,7 @@ test('without a resume in the strip the grid has the strip and the time axis, an
 })
 
 test('the history grid shows the time axis under an empty strip, and a strip with no request', async () => {
-  const none = { ...SESSION, requestTimes: [], resumes: [] }
+  const none = { ...SESSION, requests: reqs([]), resumes: [] }
   expect(tableRows(tablesOf(sessionEls(E, none))[2]).map((r) => flat(r))).toEqual(['cache, last 4 h '.padEnd(16 + 49), ' '.repeat(16) + AXIS_TEXT])
 })
 
@@ -1365,7 +1366,7 @@ test('the Week model table shows ≈ after the name of an estimated row on both 
 
 test('the band shows ≈ before the re-warm cost of a fallback price, and not for an exact price or a model without a price', async () => {
   const at = (model: string, now: number, isWorking: boolean = false) => {
-    const main = { ...mainAfter(NO_MAIN, model, T0, 411_002, 'start', 0.2), isWorking }
+    const main = { ...mainAfter(NO_MAIN, model, T0, 411_002, 'start', 0.2, '1h', '1h'), isWorking }
     const totals = addTo({}, model, 'main', countsOf({ ...FABLE, model }, 3.11))
     return bandData(main, totals, [], null, now)!
   }
@@ -1521,7 +1522,7 @@ test('the Session table drops input, req, c.write, output and share in this orde
     rows: [{ model: 'claude-fable-5-1', scope: 'main', counts: { ...EMPTY, requests: 1, cost: 1 } }],
     total: { ...EMPTY, requests: 1, cost: 1 },
     causes: NO_CAUSES,
-    requestTimes: [],
+    requests: reqs([]),
     resumes: [],
     now: T0,
     usd: null,
@@ -1779,7 +1780,7 @@ const PANE_NOW: NowRow[] = [
 const PANE_SESSION: SessionData = {
   ...SESSION,
   rows: [...SESSION.rows, { model: 'unknown-model', scope: 'main', counts: { ...EMPTY, requests: 3, input: 90, cacheRead: 40_000, cost: 0 } }, ...ESTIMATED_ROWS],
-  requestTimes: [T0 - 220 * MIN, T0 - 150 * MIN, T0 - 100 * MIN, T0 - 30 * MIN, T0 - 3 * MIN],
+  requests: reqs([T0 - 220 * MIN, T0 - 150 * MIN, T0 - 100 * MIN, T0 - 30 * MIN, T0 - 3 * MIN]),
   // Nine resumes 5 cells apart: no label has room, and the list of the costs cuts the oldest ones
   resumes: Array.from({ length: 9 }, (_, i) => ({ at: T0 - (230 - i * 25) * MIN, cost: 3.5 + i * 11 })),
 }
@@ -1810,7 +1811,7 @@ type PaneCase = { name: string; tables: number; svgs: number; draw: (els: Els, a
 const PANE_CASES: PaneCase[] = [
   { name: 'Now', tables: 1, svgs: 4, draw: (els, available, surface) => nowEls(els, PANE_NOW, T0, surface, available) },
   { name: 'Session', tables: 3, svgs: 4, draw: (els, available, surface) => sessionEls(els, PANE_SESSION, available, surface) },
-  { name: 'Session without resumes, causes and the reported row', tables: 3, svgs: 4, draw: (els, available, surface) => sessionEls(els, { ...PANE_SESSION, causes: NO_CAUSES, requestTimes: [], resumes: [], usd: null }, available, surface) },
+  { name: 'Session without resumes, causes and the reported row', tables: 3, svgs: 4, draw: (els, available, surface) => sessionEls(els, { ...PANE_SESSION, causes: NO_CAUSES, requests: reqs([]), resumes: [], usd: null }, available, surface) },
   { name: 'Week', tables: 3, svgs: 10, draw: (els, available, surface) => weekEls(els, PANE_WEEK, available, surface) },
   { name: 'Week without a limit', tables: 3, svgs: 0, draw: (els, available, surface) => weekEls(els, { percent: null, resetAt: null, projection: '', start: SUNDAY_START, history: [], byRepo: [], byModelScope: [], total: 0 }, available, surface) },
   { name: 'Why', tables: 5, svgs: 5, draw: (els, available, surface) => whyEls(els, PANE_WHY, available, surface) },
@@ -2103,9 +2104,9 @@ test('stage words, percents and the resume mark use heatText, and block glyphs a
     // Tab 2: the mark of a resume is text, the bars of the causes and the strip are graphics
     const sessionTree = sessionEls(E, evenCauses, undefined, surface)
     expect(wordColours(sessionTree), surface).toEqual([['▲', heatText(1)]])
-    const strip = stripCells(SESSION.requestTimes, SESSION.now).filter((c) => c.char === '█').map((c) => c.color)
+    const strip = stripCells(SESSION.requests, SESSION.now).filter((c) => c.char === '█').map((c) => c.color)
     expect(glyphColours(sessionTree), surface).toEqual(onTerminal ? [...cellColours(5, 20), ...cellColours(10, 20), ...cellColours(5, 20), ...strip] : [])
-    if (!onTerminal) expect(all(sessionTree, 'Svg').map((v) => v.props.source).slice(-1)).toEqual([stripSvg(stripCells(SESSION.requestTimes, SESSION.now))])
+    if (!onTerminal) expect(all(sessionTree, 'Svg').map((v) => v.props.source).slice(-1)).toEqual([stripSvg(stripCells(SESSION.requests, SESSION.now))])
   }
 })
 
@@ -2167,7 +2168,7 @@ test('the help tab has the sections, the terms and the explanations of the appro
 
 test('a term of the help tab is as long as a table column leaves, so that the explanation starts at one column', async () => {
   for (const [term] of HELP_ROWS) expect(Array.from(term).length, term).toBeLessThanOrEqual(21)
-  expect(HELP_ROWS).toHaveLength(39)
+  expect(HELP_ROWS).toHaveLength(40)
   expect(HELP_HEADINGS).toEqual(['Band above the prompt', '1 Now', '2 Session', '3 Week', '4 Why', 'Costs', '/token-watch'])
 })
 
@@ -2300,7 +2301,7 @@ test('the terms of the help tab are the labels that the band and the other tabs 
   // The band: each term has the shape of a part of the band line. The stage words are the stages
   let totals = addTo({}, 'claude-fable-5-1', 'main', countsOf(FABLE, 3.11))
   totals = addTo(totals, 'claude-sonnet-5-5', 'main', countsOf(SONNET, 0.5))
-  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2)
+  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2, '1h', '1h')
   // The 5-hour window started 20 minutes before the reading: at 12%, it reaches 100% before its reset, and the week has no reset time
   const projected = [
     { kind: 'seven_day', percentUsed: 41 },
@@ -2308,7 +2309,9 @@ test('the terms of the help tab are the labels that the band and the other tabs 
   ]
   const band = shape(flat(bandEls(E, bandData(main, totals, projected, T0, T0 + 13 * MIN)!)))
   const bandTerms = terms('Band above the prompt').slice(6)
-  for (const term of bandTerms.slice(0, -2)) expect(band, term).toContain(shape(term))
+  // The band draws the label of an unknown cache life in place of the tube, before the mod has read the life
+  const unknown = shape(flat(bandEls(E, bandData({ ...main, ttl: null }, totals, projected, T0, T0 + 13 * MIN)!)))
+  for (const term of bandTerms.slice(0, -2)) expect(term === UNKNOWN_LIFE ? unknown : band, term).toContain(shape(term))
   // The last two terms are the buttons. The terminal draws the pane button as `[ label ]` and the plain hide button as its label
   const [pane, hide] = all(bandEls(E, bandData(main, totals, projected, T0, T0 + 13 * MIN)!, 'terminal', 120, { isPaneOpen: false, onPane: () => {}, onHide: () => {} }), 'Button')
   expect(bandTerms.slice(-2)).toEqual(['[ ' + pane.props.label + ' ]', hide.props.label])
@@ -2368,4 +2371,23 @@ test('a narrow dialog keeps the label column and gives the value at least 20 cel
   expect(values(80)).toEqual([65, 65, 65, 65, 65])
   expect(values(30)).toEqual([20, 20, 20, 20, 20])
   expect(values(undefined)).toEqual([undefined, undefined, undefined, undefined, undefined])
+})
+
+test('the band shows the label of an unknown cache life in place of the tube, and the Now row shows no cache for it', async () => {
+  const totals = addTo({}, 'claude-fable-5-1', 'main', countsOf(FABLE, 3.11))
+  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2, '1h', null)
+  const d = bandData(main, totals, [], null, T0 + 13 * MIN)!
+  expect(d.fraction).toBeNull()
+  expect(d.label).toBe('cache life unknown · last request 13m ago')
+  expect(flat(bandEls(E, d))).toContain('cache life unknown · last request 13m ago')
+  expect(nowCells(row({ mainTtl: null, lastMainRequestAt: T0 - 13 * MIN }), T0)[0]).toBe('')
+  expect(nowCells(row({ mainTtl: '5m', lastMainRequestAt: T0 - MIN }), T0)[0]).toMatch(/ 4m$/)
+})
+
+test('the band counts down a 5-minute cache life and prices the re-warm with the 5-minute write', async () => {
+  const totals = addTo({}, 'claude-fable-5-1', 'main', countsOf(FABLE, 3.11))
+  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2, '5m', '5m')
+  const d = bandData(main, totals, [], null, T0 + 3 * MIN)!
+  expect(d.stage).toBe('WARM')
+  expect(d.label).toBe('2m left · 411k cached · $5.14 to re-warm')
 })

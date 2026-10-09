@@ -1,6 +1,6 @@
-import type { Breakdown, Causes, Limit, Resume, Totals } from '../types'
+import type { Breakdown, Causes, Limit, MainRequest, Resume, Totals, Ttl } from '../types'
 import { dayTime, formatMoney, formatPercent, formatTokens, limitItems, limitsAgeText, shortModel } from './format'
-import { PRICES, familyOf, newestOf, priceInfo, type PriceInfo } from './prices'
+import { PRICES, familyOf, newestOf, priceInfo, ratesOf, type PriceInfo, type Rates } from './prices'
 import { stripCells } from './temperature'
 import { STRIP_MS, rowsOf, sumAll } from './tally'
 import type { WeekData } from './view'
@@ -46,7 +46,9 @@ export type RecommendInput = {
   causes: Causes
   // The cost that Claude Code reports with /cost, or null
   usd: number | null
-  requestTimes: number[]
+  requests: MainRequest[]
+  // The cache life of the main conversation, or null when the mod does not know it
+  mainTtl: Ttl | null
   resumes: Resume[]
   limits: Limit[]
   limitsAt: number | null
@@ -113,7 +115,8 @@ export function estimateTokens(text: string): number {
 // The highest cost at API prices: the input estimate and the full output cap. Null for a model without a price
 export function maxCostOf(info: PriceInfo | undefined, inputTokens: number, outputCap: number): number | null {
   if (info === undefined) return null
-  return (inputTokens * info.price.input + outputCap * info.price.output) / 1e6
+  const rates = ratesOf(info.price, inputTokens)
+  return (inputTokens * rates.input + outputCap * rates.output) / 1e6
 }
 
 function percentOf(part: number, whole: number): string {
@@ -173,19 +176,19 @@ function causeLines(causes: Causes): string[] {
 }
 
 // The strip of the Session tab as letters: W warm, c cold, . no request yet
-function stripText(requestTimes: number[], now: number): string {
-  return stripCells(requestTimes, now)
+function stripText(requests: MainRequest[], now: number): string {
+  return stripCells(requests, now)
     .map((c) => (c.color === '' ? '.' : c.char === '█' ? 'W' : 'c'))
     .join('')
 }
 
 function historyLines(d: RecommendInput): string[] {
-  const recent = d.requestTimes.filter((t) => t > d.now - STRIP_MS)
+  const recent = d.requests.filter((r) => r.at > d.now - STRIP_MS)
   const resumes = d.resumes.filter((r) => r.at > d.now - STRIP_MS)
   return [
     'Main requests in the last 4 hours: ' + recent.length + '.',
     'Cache state for each 5 minutes of the last 4 hours, oldest first (W warm, c cold, . before the first request):',
-    stripText(d.requestTimes, d.now),
+    stripText(d.requests, d.now),
     resumes.length === 0 ? 'Resumes in the last 4 hours: none.' : 'Resumes in the last 4 hours: ' + resumes.map((r) => agoText(d.now - r.at) + ', cache write ' + formatMoney(r.cost)).join('; ') + '.',
   ]
 }
@@ -220,6 +223,14 @@ function weekLines(w: WeekData): string[] {
   ]
 }
 
+function ratesText(r: Rates): string {
+  return 'input ' + r.input + ', cache write ' + r.write1h + ' (1 hour) or ' + r.write5m + ' (5 minutes), cache read ' + r.read + ', output ' + r.output
+}
+
+function lifeText(ttl: Ttl | null): string {
+  return ttl === null ? 'unknown' : ttl === '1h' ? '1 hour' : '5 minutes'
+}
+
 // The prices of the newest model of each family in the table, so that the model can put a figure on a change of the model
 function priceLines(): string[] {
   const families = [...new Set(Object.keys(PRICES).flatMap((key) => familyOf(key) ?? []))]
@@ -227,7 +238,8 @@ function priceLines(): string[] {
     const key = newestOf(family)
     if (key === undefined) return []
     const p = PRICES[key]
-    return ['- ' + shortModel(key) + ': input ' + p.input + ', cache write ' + p.write1h + ' (1 hour) or ' + p.write5m + ' (5 minutes), cache read ' + p.read + ', output ' + p.output]
+    const above = p.above === undefined ? '' : '; for a prompt above ' + formatTokens(p.above.tokens) + ' tokens: ' + ratesText(p.above.rates)
+    return ['- ' + shortModel(key) + ': ' + ratesText(p) + above]
   })
 }
 
@@ -239,7 +251,7 @@ export function recommendPrompt(d: RecommendInput): string {
     '',
     ...section('Plan limits', limitLines(d)),
     ...section('This conversation, by model and scope', sessionLines(d)),
-    ...section('Cache writes of this conversation, by cause', [...causeLines(d.causes), 'Cache life: 60 minutes in the main conversation, 5 minutes in a subagent.']),
+    ...section('Cache writes of this conversation, by cause', [...causeLines(d.causes), 'Cache life of the main conversation: ' + lifeText(d.mainTtl) + '. Subagents: 5 minutes, unless a setting gives them 1 hour.']),
     ...section('Cache history of this conversation', historyLines(d)),
     ...section('Context of this conversation', contextLines(d.breakdown)),
     ...section('This week', weekLines(d.week)),
