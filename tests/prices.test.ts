@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { PRICES, compareVersions, costOf, familyOf, newestOf, priceInfo, priceOf, rewarmCost, tokens, versionOf, writeCostOf } from '../hooks/prices'
-import { collectModels, priceKeysOf, reportLines, statusOf } from '../scripts/prices-rule.mjs'
+import { PRICE_KEYS, collectModels, reportLines, statusOf } from '../scripts/price-rule.mjs'
 
 function close(actual: number, expected: number) {
   expect(Math.abs(actual - expected) < 1e-9).toBe(true)
@@ -125,7 +125,7 @@ test('costOf, writeCostOf and rewarmCost use the fallback price', async () => {
 // The models of the check are the cases of the rule: exact, fallback by a higher and a lower version, a suffix, other families and no family
 const RULE_MODELS = ['claude-opus-5-5', 'claude-opus-5', 'claude-opus-5-6', 'claude-opus-4-9', 'claude-sonnet-6', 'claude-fable-5-2', 'claude-haiku-4-5-20251001', 'claude-haiku-4-6-20260101', 'claude-opus-5-5[1m]', 'claude-opus-4-9[1m]', 'claude-mythos-1', 'claude-3-5-haiku-20241022', 'gpt-6-sol', '']
 
-test('scripts/prices-rule.mjs gives the same answer as priceInfo for the same table', async () => {
+test('scripts/price-rule.mjs gives the same answer as priceInfo for the same table', async () => {
   const keys = Object.keys(PRICES)
   for (const model of RULE_MODELS) {
     const info = priceInfo(model)
@@ -135,17 +135,9 @@ test('scripts/prices-rule.mjs gives the same answer as priceInfo for the same ta
   }
 })
 
-test('priceKeysOf reads the quoted keys of the table and nothing after it', async () => {
-  const text = [
-    'export type Price = { input: number }',
-    'export const PRICES: Record<string, Price> = {',
-    "  'claude-fable-5-1': { input: 10 },",
-    '  "claude-opus-5-5": { input: 4 },',
-    '}',
-    "const OTHER = { 'claude-sonnet-9': 1 }",
-  ].join('\n')
-  expect(priceKeysOf(text)).toEqual(['claude-fable-5-1', 'claude-opus-5-5'])
-  expect(priceKeysOf('nothing')).toEqual([])
+// The price report reads no file of the mod, so its copy of the keys must follow the table
+test('PRICE_KEYS of scripts/price-rule.mjs holds the keys of PRICES, in the same order', async () => {
+  expect(PRICE_KEYS).toEqual(Object.keys(PRICES))
 })
 
 test('collectModels finds the model fields and the model part of the hour bucket keys', async () => {

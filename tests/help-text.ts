@@ -63,7 +63,7 @@ export const HELP_SECTIONS: { title: string; rows: [string, string][] }[] = [
     title: 'Costs',
     rows: [
       ['every cost', 'An estimate at API list prices. A plan does not bill them. They show where the tokens go.'],
-      ['opus-5-6 ≈', 'No exact price yet: priced as the newest model of its family. make prices lists these models.'],
+      ['opus-5-6 ≈', 'No exact price yet: priced as the newest model of its family. make price-report lists these models.'],
       ['unpriced', 'The model has no price in the table of the mod.'],
     ],
   },

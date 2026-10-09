@@ -10,7 +10,7 @@ Bug reports, ideas and pull requests are welcome.
 
 ## Set up
 
-Prerequisites: the `claude` CLI (Claude Code 2.1.287 or later), `gitleaks`, `perl` and `git`. `make typecheck` and `make prices` also need Node.js.
+Prerequisites: the `claude` CLI (Claude Code 2.1.287 or later), `gitleaks`, `perl` and `git`. `make typecheck` and `make price-report` also need Node.js.
 
 1. Fork the repo and clone your fork.
 2. Run the mod from the clone in one session: `claude --plugin-dir /path/to/token-watch`.

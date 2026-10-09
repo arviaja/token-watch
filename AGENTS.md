@@ -26,7 +26,8 @@ Everything in this repo is public: files, commit messages, branch names, tags, i
 - `hooks/temperature.ts`: cache lifetime, stages, heat colours, and the cells and SVG markup of the tube, the bars, the strip and the week history.
 - `hooks/format.ts`: text formats (tokens, money, percent), table cells and column fitting.
 - `hooks/prices.ts`: the price table, the fallback price of a model without a key (the price of the newest model of its family) and the cost functions.
-- `scripts/prices.mjs` and `scripts/prices-rule.mjs`: `make prices`. `prices-rule.mjs` holds the price rule of `hooks/prices.ts` for Node, and it has no import so that the tests can load it. Change both rules together: `tests/prices.test.ts` checks that they agree.
+- `scripts/price-report.mjs` and `scripts/price-rule.mjs`: `make price-report`. `price-rule.mjs` holds the price rule of `hooks/prices.ts` for Node and a copy of the keys of `PRICES` (`PRICE_KEYS`), and it has no import so that the tests can load it. Change both rules and both key lists together: `tests/prices.test.ts` checks that they agree.
+- No file outside `hooks/` and `tests/` names a path in `hooks/` or reads a file there, and no script shares a name with a file of the mod. The plugin directory holds the review of a mod when the commands, scripts or configuration of the plugin point at the files of the mod.
 - `types/index.d.ts`: the types of the snapshot and the contract of the `$.state` values.
 
 Tests are in `tests/` and run with `claude plugin test`:
@@ -39,7 +40,7 @@ Tests are in `tests/` and run with `claude plugin test`:
 
 - `make verify`: runs `text` (no em or en dash in any text file that git tracks or does not ignore), `secrets` (gitleaks over the history, the staged and unstaged changes and the untracked files), `private` (`scripts/check-private.sh`, see "This repo is public"), `validate` (`claude plugin validate --strict .`) and `test` (`claude plugin test .`). It fails when one of them fails. Run it before each commit.
 - `make typecheck`: the TypeScript check. It has known errors and is not in `verify` yet. It needs `tsconfig.json` and `.claude-plugin/types/`. Claude Code generates both when the mod loads, and git ignores both, so a fresh checkout or worktree can fail for that reason.
-- `make prices`: runs `node scripts/prices.mjs`. It reads the models in the store of the mod (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/store/token-watch_*.json`) and prints each one as `exact`, `fallback from <key>`, `unpriced` or `alias, priced as <key>` (the price model of `/token-watch recommend`, which needs no key), then a summary. It informs, always exits 0 and is not in `verify`. Run it when a pane shows `unpriced` or `≈`, then add the new keys to `PRICES` in `hooks/prices.ts`.
+- `make price-report`: runs `node scripts/price-report.mjs`. It reads the models in the store of the mod (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/store/token-watch_*.json`) and prints each one as `exact`, `fallback from <key>`, `unpriced` or `alias, priced as <key>` (the price model of `/token-watch recommend`, which needs no key), then a summary. It informs, always exits 0 and is not in `verify`. Run it when a pane shows `unpriced` or `≈`, then add the new keys to `PRICES` in `hooks/prices.ts` and to `PRICE_KEYS` in `scripts/price-rule.mjs`.
 - `claude --plugin-dir .`: runs the mod in one session.
 - When `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` already loads a clone, `--plugin-dir` loads a second copy. Run a worktree for one session with `claude --settings '{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"<path>"}}'`. A shell variable does not work: the settings file replaces it in a live session, although `claude plugin list` shows the shell value.
 
