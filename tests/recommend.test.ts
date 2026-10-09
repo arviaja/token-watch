@@ -186,6 +186,8 @@ test('a cost from a fallback price names the price that it uses, and a model wit
 test('a text for the dialog loses its control characters and is cut at 10000 characters with a note', async () => {
   expect(drawableText('## One\r\n\nText\twith a tab.')).toBe('## One\n\nText\twith a tab.')
   expect(drawableText('a\u0000b\u001bc\u007fd')).toBe('abcd')
+  // The engine refuses the C1 characters too, for example NEL and the single-character CSI
+  expect(drawableText('a\u0085b\u009bc\u0080d\u00a0e')).toBe('abcd\u00a0e')
   const short = 'x'.repeat(10_000)
   expect(drawableText(short)).toBe(short)
   const long = drawableText('y'.repeat(12_000))

@@ -84,7 +84,8 @@ export function failureText(r: CallFailure): string {
 // A text that the dialog can draw: carriage returns and other control characters out, and at most 10000 characters.
 // A longer reply is cut, with a note, because the engine refuses a tree with a longer text and closes the pane
 export function drawableText(text: string): string {
-  const clean = text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
+  // The C0 characters besides tab and newline, DEL and the C1 characters: the engine refuses each of them
+  const clean = text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '')
   if (clean.length <= MAX_TEXT) return clean
   let cut = ''
   for (const char of Array.from(clean)) {

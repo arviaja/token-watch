@@ -102,12 +102,14 @@ export function cell(text: string, column: Column): string {
 export const ESTIMATE_MARK = ' ≈'
 
 // A name with the estimate mark after it. A name that is too long for the column is cut with an ellipsis, and the mark stays whole.
-// The result fits the column with the one free cell that cell() keeps, so cell() does not cut it again
+// The result fits the column with the one free cell that cell() keeps, so cell() does not cut it again.
+// The control characters go before the count, as in cell()
 export function markedCell(name: string, column: Column): string {
   const room = column.width - 1
-  const chars = Array.from(name)
+  const clean = printable(name)
+  const chars = Array.from(clean)
   const mark = Array.from(ESTIMATE_MARK).length
-  if (chars.length + mark <= room) return name + ESTIMATE_MARK
+  if (chars.length + mark <= room) return clean + ESTIMATE_MARK
   return chars.slice(0, Math.max(0, room - mark - 1)).join('') + '…' + ESTIMATE_MARK
 }
 

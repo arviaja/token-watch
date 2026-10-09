@@ -106,6 +106,8 @@ test('markedCell puts the mark after the name and keeps the mark whole when it c
   expect(Array.from(markedCell('opus-5-6', column))).toHaveLength(10)
   expect(markedCell('haiku-4-6', column)).toBe('haiku-4… ≈')
   expect(markedCell('sonnet-6[1m]', column)).toBe('sonnet-… ≈')
+  // A control character does not count: the clean name fits, and the mark follows it
+  expect(markedCell('opus-\u009b5-6', column)).toBe('opus-5-6 ≈')
   for (const name of ['', 'a', 'opus-5-6', 'haiku-4-6', 'a-very-long-model-name']) {
     const text = markedCell(name, column)
     expect(Array.from(text).length).toBeLessThanOrEqual(column.width - 1)
