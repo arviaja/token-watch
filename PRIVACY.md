@@ -12,6 +12,7 @@ The mod reads from Claude Code, in the Claude Code process on your computer:
 
 - the token counts and the model of each model request (input, output, cache read and cache write tokens)
 - the plan limits that Claude Code measures (weekly and 5-hour percent used, reset time)
+- the session cost that Claude Code reports with `/cost`, before and after each model request, to read the cache life of the request
 - the session ID, and the name of the folder of the repo that the session runs in (the last part of the path, not the full path)
 - the subagent type of each subagent (for example `Explore`)
 - the context breakdown of the session, when you open the Why tab or run `/token-watch recommend`: categories, names of memory files, MCP servers and custom agents, with their token counts

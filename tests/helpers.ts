@@ -1,8 +1,12 @@
 import { mock } from 'claude-code/testing'
+import { costOf } from '../hooks/prices'
+import type { Ttl } from '../types'
 
 export const T0 = Date.UTC(2026, 9, 6, 12, 0, 0)
 export const MIN = 60_000
 export const RESETS_AT = '2026-10-11T09:00:00.000Z'
+// Main requests at these times, each with the 1-hour cache life
+export const reqs = (times: number[]) => times.map((at) => ({ at, ttl: '1h' as const }))
 export const FABLE = { model: 'claude-fable-5-1', input_tokens: 2, output_tokens: 1000, cache_read_input_tokens: 400_000, cache_creation_input_tokens: 10_000 }
 export const SONNET = { model: 'claude-sonnet-5-5', input_tokens: 5, output_tokens: 300, cache_read_input_tokens: 20_000, cache_creation_input_tokens: 30_000 }
 
@@ -21,6 +25,9 @@ export const REPLY = { isAnswered: true, text: '## Start a new session after a l
 
 let nextUsage: unknown = null
 
+// How the stub of the engine books a request in the session cost: at the price of a cache life, or 'other' for a price that fits no life (fast mode, a price of the organization)
+export type Booking = Ttl | 'other'
+
 export type Harness = {
   store: Map<string, unknown>
   clock: ReturnType<typeof mock.clock>
@@ -36,13 +43,18 @@ export type Harness = {
   agentListCalls: { count: number }
   // The text of each toast of the mod
   toasts: string[]
+  // How the stub books the next requests, by scope. A test can change it between requests
+  booking: { main: Booking; subagent: Booking }
+  // The session cost that the stub reports: a start value and each booked request.
+  // during: a cost that another request books while the next request runs (a side request, a subagent that ends meanwhile)
+  ledger: { usd: number; during: number }
 }
 
 // Stubs for every mods API call and event the mod passes on, with a store in a Map
 // Each failure is read at each call, so a test can turn it on after the start
 export type Failures = { sessionId?: boolean; agentList?: boolean }
 
-export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures; modelResult?: { deny: string } | { value: unknown } | (($: any) => Promise<{ deny: string } | { value: unknown }>); breakdown?: unknown } = {}): Harness {
+export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures; modelResult?: { deny: string } | { value: unknown } | (($: any) => Promise<{ deny: string } | { value: unknown }>); breakdown?: unknown; booking?: { main?: Booking; subagent?: Booking } } = {}): Harness {
   const store = new Map<string, unknown>(Object.entries(options.store ?? {}))
   const opened: unknown[] = []
   const registered: unknown[] = []
@@ -54,6 +66,9 @@ export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: 
   // paneShown false stands for a pane that another pane covers
   const up = new Map<string, boolean>()
   const clock = mock.clock(on, { now: T0 })
+  // Claude Code books each request at the price of its real cache life: 1 hour for the main conversation on a subscription, 5 minutes for a subagent
+  const booking = { main: options.booking?.main ?? ('1h' as Booking), subagent: options.booking?.subagent ?? ('5m' as Booking) }
+  const ledger = { usd: 39.2, during: 0 }
   on('store.get', (_$: unknown, e: { key: string }) => ({ value: store.get(e.key) }))
   on('store.set', (_$: unknown, e: { key: string; value: unknown }) => {
     if (options.failStoreSet) return { deny: 'store full' }
@@ -78,7 +93,7 @@ export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: 
         { kind: 'seven_day', percentUsed: 41, resetsAt: RESETS_AT },
         { kind: 'five_hour', percentUsed: 12 },
       ],
-      cost: { usd: 39.2 },
+      cost: { usd: ledger.usd },
     },
   }))
   on('command.register', (_$: unknown, e: unknown) => {
@@ -119,6 +134,7 @@ export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: 
   on('session.measure', (_$: unknown, e: { changed: unknown }) => ({ changed: e.changed }))
   on('turn.complete', () => ({ text: '' }))
   on('classic.SessionStart', () => ({}))
+  on('classic.PostModelSwitch', () => ({}))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['drawn by Claude Code'] }))
   // The agent list holds every agent that a test spawned
   const spawned: { id: string; type: string }[] = []
@@ -131,11 +147,19 @@ export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: 
     agentListCalls.count += 1
     return options.fail?.agentList ? { deny: 'no agent list' } : { value: spawned.map((a) => ({ ...a, description: 'd', status: 'running' })) }
   })
-  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; agentId?: string }) {
     yield { kind: 'text', index: 0, text: 'ok' }
+    const usage = nextUsage as { model: string } | null
+    ledger.usd += ledger.during
+    ledger.during = 0
+    if (usage !== null) {
+      const life = e.agentId === undefined ? booking.main : booking.subagent
+      // 'other': twice the 1-hour price, as fast mode books it
+      ledger.usd += life === 'other' ? 2 * costOf(usage, '1h') : costOf(usage, life)
+    }
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: nextUsage }
   })
-  return { store, clock, opened, registered, modelCalls, closed, keyCalls, agentListCalls, toasts }
+  return { store, clock, opened, registered, modelCalls, closed, keyCalls, agentListCalls, toasts, booking, ledger }
 }
 
 export async function start($: any) {

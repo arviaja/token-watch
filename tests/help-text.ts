@@ -4,13 +4,14 @@ export const HELP_SECTIONS: { title: string; rows: [string, string][] }[] = [
   {
     title: 'Band above the prompt',
     rows: [
-      ['', 'Cache of this conversation. Full after each request, empty after 60 minutes. Blue is cold, red is hot.'],
+      ['', 'Cache of this conversation. Full after each request, empty when the cache life ends: 1 hour or 5 minutes, read from the cost that Claude Code books. Blue is cold, red is hot.'],
       ['LIVE', 'A turn runs.'],
-      ['HOT', 'More than 2/3 of the cache hour is left.'],
-      ['WARM', '1/3 to 2/3 of the hour is left.'],
-      ['COOLING', 'Less than 1/3 of the hour is left.'],
+      ['HOT', 'More than 2/3 of the cache life is left.'],
+      ['WARM', '1/3 to 2/3 of the cache life is left.'],
+      ['COOLING', 'Less than 1/3 of the cache life is left.'],
       ['COLD', 'The cache expired. The next message writes it again.'],
       ['47m left', 'Minutes until the cache expires.'],
+      ['cache life unknown', 'The mod has not read the cache life yet. The band shows the time since the last request, no countdown.'],
       ['412k cached', 'Tokens in the cache: the context.'],
       ['$8.24 to re-warm', 'What the next message costs to write them again.'],
       ['week 41% · 5h 12%', 'Plan limits used, as Claude Code reports them.'],

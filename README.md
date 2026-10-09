@@ -8,7 +8,7 @@ The mod only observes. It does not change, block or delay a request, a tool call
 
 ### Band above the prompt
 
-- A cache tube for the main conversation of the session. The tube is full right after a request and empties from the hot end over the 60-minute cache lifetime. Colours run from blue (cold) to red (hot).
+- A cache tube for the main conversation of the session. The tube is full right after a request and empties from the hot end over the cache life of that request: 1 hour or 5 minutes (see Cache life). Colours run from blue (cold) to red (hot). Before the mod knows the cache life, the band shows `cache life unknown · last request 13m ago` in place of the tube, and `COLD` when 1 hour has passed.
 - The stage: `LIVE` during a turn, then `HOT`, `WARM`, `COOLING` and `COLD`, with the minutes left.
 - The context tokens that the cache holds and the cost to write them to the cache again (`$0.50 to re-warm`). When the cache is cold: the tokens and the cost that the next message writes again. A cost from a fallback price (see Limits) has a `≈`: `≈ $0.50 to re-warm`.
 - The weekly and 5-hour percent used of the plan, joined with a dot: `week 49% · 5h 8%`. An old reading shows its age: `(2h ago)`.
@@ -21,6 +21,19 @@ The band stays on one line. It takes the width that Claude Code gives it, keeps 
 `/token-watch band off` hides the band in all sessions on this Mac. `/token-watch band on` shows it again, and `/token-watch band` names the current state of this session. `×` hides the band only in the session where it is pressed, until the session ends or until `/token-watch band on`; the other sessions keep their band. The answer is a toast, not text in the transcript. The setting stays in the store of the mod until it changes, also after a restart. A running session applies a change from another session within 15 seconds. While the band is off or hidden, the mod still counts each request, the pane and `/token-watch recommend` work, and `/token-watch` is the only way to open the pane.
 
 In the terminal, the tube is drawn with block characters. In the desktop app, the tube is an SVG, because the desktop app uses a proportional font. The bars of the pane follow the same rule: block characters in the terminal, SVG in the desktop app.
+
+### Cache life
+
+Claude Code writes the cache of a request with a life of 1 hour or 5 minutes. The main conversation on a subscription within its usage limits gets 1 hour. Above the limit, with an API key, on a cloud provider and with `FORCE_PROMPT_CACHING_5M=1`, it gets 5 minutes. A subagent gets 5 minutes. Settings and environment variables can change each of these.
+
+The mod reads no settings and no environment variables. It reads the life from the session cost that Claude Code reports with `/cost`:
+
+- Claude Code books each request at the price of its real life: a 5-minute cache write costs 1.25 times the input price, a 1-hour cache write 2 times.
+- After each request the mod compares the rise of the session cost with the cost of the request at the two prices. When exactly one price fits, that is the life of the request. The rise counts from the last reading before the end of the request, so a cost that Claude Code booked before the request started does not count.
+- The first fit sets the life of the main conversation, or of a subagent type. A different life needs two fits in a row, so one rise that fits by chance changes nothing.
+- Claude Code names the life of the main conversation at a model switch, and says on a resume whether the cache expired. The mod uses these facts.
+- Before the first fit, the costs use the default of Claude Code (1 hour for the main conversation, 5 minutes for a subagent), and the band shows no countdown.
+- The cause of a cache write compares the pause with the life of the cache that the previous request left.
 
 ### Pane
 
@@ -81,10 +94,12 @@ Each hook passes its event on unchanged, with three exceptions that concern only
 
 - The mod sees only sessions that run it. Codex and sessions from before the installation are not counted. There is no backfill from transcripts.
 - Requests that do not pass through `turn.step`, for example compaction summaries, are not counted. The totals can be lower than `/cost`.
-- The split by repo, model and scope is an estimate from tokens weighted with API prices. The price table is in `hooks/prices.ts` (source: the Claude pricing page, read 2026-09-29). A price change needs an edit of that file.
+- The split by repo, model and scope is an estimate from tokens weighted with API prices. The price table is in `hooks/prices.ts` (source: the Claude pricing page, read 2026-10-08). A price change needs an edit of that file. Haiku 5.5 has a higher price for a prompt above 100,000 tokens; the table holds both prices.
 - A model without a key in the table uses the price of the newest model of the same family (the word after `claude-`, for example `opus`). `claude-opus-5-6` uses the price of `claude-opus-5-5` while the table has no key for it. The cost then shows with a `≈` after the model name in the Session table and in the Week table by model and scope, and in the re-warm cost of the band. The Now tab and the totals mix models, so they have no `≈`. A model of a family without any key shows `unpriced`, and its cost is 0.
 - How to update the prices: run `make price-report`. It lists the models that the mod saw, each as `exact`, `fallback from <key>`, `unpriced` or `alias, priced as <key>`. An alias is the model of `/token-watch recommend` and needs no key. Read the pricing page, add the new keys to `PRICES` in `hooks/prices.ts` and to `PRICE_KEYS` in `scripts/price-rule.mjs`, and run `make price-report` again. `make verify` fails while the two lists differ. The costs that the mod already stored keep the price of the day that it counted them.
-- The tube assumes a 60-minute cache for the main conversation and 5 minutes for subagents. Claude Code uses the 60-minute cache only on a subscription within its usage limits. Above the limit, or with an API key, the main conversation uses 5 minutes, and the tube shows the cache warmer than it is.
+- The cache life comes from the session cost, so it needs the exact price of the model in the price table. A request fits no life when its model has a fallback price or no price, in fast mode, with US-only inference, with prices of the organization, and when another request books its cost while the request runs. The mod then keeps the last life that it read. A session in which no request fits shows `cache life unknown` and prices with the default life.
+- A change of the cache life shows from the second request after the change. The first request after the change counts with the old life.
+- A request that neither reads nor writes the cache does not refresh the tube.
 - Each `/token-watch` adds the command to the conversation, as every slash command does: a short note of a few dozen tokens that the model reads with the next message. The band button opens and closes the pane without this note. The band, the pane, the dialog and the toasts are drawn only for the user. The mod sends data to a model only in the call of `/token-watch recommend`, and the reply of that call does not enter the conversation.
 - `/token-watch recommend` costs one model call. On a subscription the call counts against the plan allowance. With an API key it is billed at API prices. The cost in the dialog is an estimate.
 - An organization can refuse every mod that calls `$.model.complete` (a policy mod on `plugin.register`). There token-watch does not load.
@@ -92,7 +107,7 @@ Each hook passes its event on unchanged, with three exceptions that concern only
 
 ## Requirements
 
-Claude Code 2.1.287 or later. Tested with 2.1.288 (automated tests) and 2.1.291 (manual checks).
+Claude Code 2.1.287 or later. Tested with 2.1.288 (automated tests), 2.1.291 (manual checks) and 2.1.294 (checks of the cache life).
 
 ## Installation
 

@@ -53,19 +53,49 @@ Out of scope:
 | `$.store` | One JSON store that all sessions on the Mac share. |
 | `$.model.complete` (a call) | The one model call of `/token-watch recommend`, through the API client of the session. The result holds the reply and `usage` (the four token counts), but not the model that answered. |
 
-A check of one week of transcripts showed the cache lifetimes. 98.5% of the cache writes of main conversations use the 1-hour lifetime. 100% of the cache writes of subagents use the 5-minute lifetime. The usage that `turn.step` reports does not separate the two. The mod therefore uses these fixed values:
+## Cache life
 
-- The cache lifetime of a main conversation is 60 minutes.
-- The cache lifetime of a subagent is 5 minutes.
-- A cache write in a main conversation is priced at the 1-hour write price. A cache write in a subagent is priced at the 5-minute write price.
+### Rules of Claude Code
+
+Claude Code writes the cache of a request with a life of 5 minutes or 1 hour (source: the prompt caching page of the Claude Code docs, read 2026-10-08):
+
+- The main conversation gets 1 hour on a subscription within the usage of its plan. It gets 5 minutes above the limit (usage credits), with an API key and on a cloud provider.
+- Subagents, forks and the other requests outside the main conversation get 5 minutes.
+- Overrides, first match wins: `FORCE_PROMPT_CACHING_5M=1`; the variable of the bucket (`CLAUDE_CODE_PROMPT_CACHE_TTL`, `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL`); the setting of the bucket (`promptCacheTtl`, `subagentPromptCacheTtl`); `cacheTtl` in the `experimental` frontmatter of a subagent; `ENABLE_PROMPT_CACHING_1H=1`; the default.
+
+A 5-minute cache write costs 1.25 times the input price, a 1-hour cache write 2 times.
+
+### What the mods API gives
+
+- The usage of `turn.step` holds four token counts and the model. It does not split the cache write into 5 minutes and 1 hour.
+- `$.session.messages()` holds no usage, in neither form.
+- No field of `rateLimits` says that a subscription uses its usage credits.
+- `$.session.usage().cost.usd` is the session cost that `/cost` reports. Claude Code books each request in it at the price of its real cache life. Four headless test runs (a main conversation, the same with `FORCE_PROMPT_CACHING_5M=1`, two parallel subagents, and auto mode with Bash and WebFetch) showed this for 20 of 20 requests. The split in the transcripts agreed for each request.
+
+The mod therefore reads the cache life from the session cost. It reads no settings, no environment variables and no transcript.
+
+### Match of a request
+
+- `costSeen` is the last session cost that the mod read. It is a module variable, not a `$.state` value: `bookedSince` reads and writes it with no `await` in between, so two requests that end together never count from one old value. A reload of the module starts it over.
+- `turn.step` reads the session cost before `next(e)` and again as the first call after it. Each reading sets `costSeen`. The second reading gives the rise since the last reading of any request: `bookedSince`. A lower reading than `costSeen` starts the count over and gives no rise. `/clear`, `/resume` and `/branch` reset `costSeen`.
+- `matchLifetime(usage, booked)` computes the cost of the request at the 5-minute and at the 1-hour price. When exactly one cost is within `1e-9` USD of the rise, that is the life of the request. The tolerance is far below the smallest gap between the two prices (a 1-token write of Haiku 5.5: `7.5e-8` USD) and far above the rounding of a session cost.
+- No match: the request wrote no cache, the model has no exact price (a fallback price is no evidence), or no cost fits. No cost fits in fast mode, with US-only inference, with prices of the organization, and when another request booked its cost while this request ran.
+
+### Confirmed life
+
+- `lifetimes` holds the life of each scope: `main`, or the subagent type. `confirmLifetime` keeps `{ known, pending }`. The first match sets `known`. A different match goes to `pending`, and a second match of it in a row confirms it. A match of `known` drops `pending`. A request without a match changes nothing. One rise that fits the other price by chance therefore changes no life.
+- The cost of a request uses `known`, or the default of Claude Code before the first match: 1 hour for `main`, 5 minutes for a subagent (`defaultTtl`).
+- `classic.PostModelSwitch` names the life of the main conversation (`cache_ttl`). The mod sets `known` of `main` to it.
+- A resume (`classic.SessionStart`, source `resume` or `fork`) says whether the cache likely expired. `ttlFromResume` reads the life of the last cache from it: warm after more than 5 minutes proves 1 hour, expired after more than 5 minutes and within 1 hour proves 5 minutes, else the life stays unknown. This proves the life of the last cache, not of the next requests, so it sets `main.ttl` and not `lifetimes`.
 
 ## Cache temperature
 
-The cache temperature is the part of the cache lifetime that is left in the main conversation of a session. The mod shows it as a gradient tube.
+The cache temperature is the part of the cache life that is left in the main conversation of a session. The mod shows it as a gradient tube.
 
 ### Fraction and stage
 
-- `fraction = 1 - (now - lastMainRequestAt) / 60 minutes`, limited to the range 0 to 1.
+- `fraction = 1 - (now - lastMainRequestAt) / life`, limited to the range 0 to 1. The life is `main.ttl`: the confirmed life of the last main request, 5 minutes or 1 hour.
+- When the life is unknown (`main.ttl` is null), the fraction is null and the band shows no tube, until 1 hour has passed: then the cache is cold for both lives, and the fraction is 0.
 - While a turn of the main conversation runs, `fraction` is 1 and the stage is `LIVE`.
 - Before the first request of a session, the session has no temperature, and the mod does not draw a tube.
 - After /resume or /branch, the mod sets the time of the last main request from the time since the last response that Claude Code passes, so the tube shows the real temperature at once and the first request counts as a resume. When the event has no model, the mod reads the model with `$.session.model()` and uses it when it is a non-empty string. When the call fails or the string is empty, the model stays empty until the first request.
@@ -143,7 +173,7 @@ The tube has `n` cells: 10 in the band, 8 in tab 1.
 - An empty cell is `░`, dimmed.
 - In the band, `▕` and `▏` (dimmed) frame the tube.
 
-With 10 cells and eighth blocks, the tube has 80 steps over 60 minutes, one step every 45 seconds. The mod redraws every 30 seconds.
+With 10 cells and eighth blocks, the tube has 80 steps over the cache life: one step every 45 seconds for 1 hour, every 3.75 seconds for 5 minutes. The mod redraws every 30 seconds.
 
 ### Label
 
@@ -155,14 +185,16 @@ The stage word follows the tube, in bold and in the colour `heatText(fraction)`.
 ▕████▊░░░░░▏ WARM 29m left · 412k cached · $8.24 to re-warm
 ▕█▊░░░░░░░░▏ COOLING 11m left · 412k cached · $8.24 to re-warm
 ▕░░░░░░░░░░▏ COLD 15m · next message re-writes 412k ≈ $8.24
+cache life unknown · last request 13m ago
 ```
 
 The examples show the terminal tube with the 10 cells of the band. The desktop draws the tube as the SVG described below.
 
 - `47m left` is the minutes until the cache expires, rounded up.
-- For a cold cache, `15m` is the minutes since the cache expired.
+- For a cold cache, `15m` is the minutes since the cache expired. With an unknown life, the minutes count from the end of 1 hour.
+- `cache life unknown · last request 13m ago` takes the place of the tube, the stage and the label while the life is unknown and less than 1 hour has passed.
 - `412k cached` is the context tokens of the last main request.
-- `$8.24` is the context tokens multiplied by the 1-hour cache-write price of the session model.
+- `$8.24` is the context tokens multiplied by the cache-write price of the session model for the life of the last request, or for the default life of the main conversation while it is unknown.
 - When the session model has no exact price, the price of the newest model of its family is used (see Prices), and the re-warm cost reads `≈ $8.24 to re-warm`. The COLD label already reads `≈ $8.24` and stays as it is, for an exact and for a fallback price. A model without any price shows no re-warm cost.
 
 On the terminal, all characters of the tube and the label take one terminal cell, and the tube is built from `Text` elements.
@@ -443,10 +475,10 @@ The table is 59 cells wide. The share is the cost of the cause divided by the co
 Cause of a cache write, per thread (the main conversation, or one subagent):
 
 - `start`: the first request of the thread.
-- `resume`: the time since the previous request of the thread is more than the cache lifetime of the thread (a resume after a pause).
+- `resume`: the time since the previous request of the thread is more than the life of the cache that the previous request left (`threadTtls`).
 - `growth`: all other requests.
 
-The cache history is a grid of two columns, 16 and 49 cells wide (65 cells). The label column is 16 cells wide because its longest label, `cache, last 4 h`, has 15 characters and a column keeps one free cell. The second column holds the strip: one cell for each 5 minutes of the last 4 hours, 48 cells, and one free cell. The mod keeps the times of the main requests of the last 4 hours in the session state for this strip. The grid has no header row. The rows are:
+The cache history is a grid of two columns, 16 and 49 cells wide (65 cells). The label column is 16 cells wide because its longest label, `cache, last 4 h`, has 15 characters and a column keeps one free cell. The second column holds the strip: one cell for each 5 minutes of the last 4 hours, 48 cells, and one free cell. The mod keeps the times of the main requests of the last 4 hours, each with the life that its cost used, in the session state for this strip. Each cell uses the life of the last request before its end. The grid has no header row. The rows are:
 
 | Row | First column | Second column |
 |---|---|---|
@@ -589,9 +621,11 @@ The tab explains the band and every term of the tabs 1 to 4. Each term shows as 
 ```text
 Band above the prompt
 ▕████░░░░░░▏          Cache of this conversation. Full after each request,
-                      empty after 60 minutes. Blue is cold, red is hot.
+                      empty when the cache life ends: 1 hour or 5
+                      minutes, read from the cost that Claude Code
+                      books. Blue is cold, red is hot.
 LIVE                  A turn runs.
-HOT                   More than 2/3 of the cache hour is left.
+HOT                   More than 2/3 of the cache life is left.
 ...
 47m left              Minutes until the cache expires.
 ...
@@ -708,7 +742,7 @@ The prompt (`recommendPrompt`) starts with the time of the reading and has these
 |---|---|
 | Plan limits | Each limit with its percent, its reset and the time of 100% at the current pace (as in the band). One line `Last reading: 3h ago.` follows when the reading is older than 30 minutes. |
 | This conversation, by model and scope | One line for each row of the Session tab: requests, input, cache write, cache read, output, cost and share. A cost from a fallback price names the key of its price. The total, and the cost that `/cost` reports. |
-| Cache writes of this conversation, by cause | The three causes with tokens, cost and share, and the two cache lifetimes. |
+| Cache writes of this conversation, by cause | The three causes with tokens, cost and share, and the cache life of the main conversation (`unknown` before the first match). |
 | Cache history of this conversation | The count of the main requests in the last 4 hours, the strip of the Session tab as 48 letters (`W` warm, `c` cold, `.` before the first request), and each resume with its age and cost. |
 | Context of this conversation | The context row and the categories of the Why tab, and its lists of memory files, MCP servers and custom agents. |
 | This week | The start of the week, the weekly limit with its reset and projection, the highest weekly percent of each past period of 12 hours, and the tables `by repo` and `by model and scope` of the Week tab, at most 10 rows each. |
@@ -729,7 +763,7 @@ The prompt holds no transcript text, no file content and no prompt text. The mod
 ### Counting
 
 - The `usage` of the call goes into `totals` and `hours` under the price model and the scope `recommend`, on every arm of the result. A call whose four counts are 0 adds nothing.
-- The cost is `costOf(usage, true)`: a cache write has the 5-minute price, as in a subagent, because the call does not use the cache of a conversation.
+- The cost is `costOf(usage, '5m')`: a cache write has the 5-minute price, as in a subagent, because the call does not use the cache of a conversation.
 - The causes and `main` do not change: the call is no thread of the conversation.
 - The snapshot carries the hours, so the Week and the Now tab count the call too. The Session tab shows the row `sonnet ≈` `recommend`, and the Week tab the row `sonnet recommend ≈`.
 - The band counts the price model among the models of the conversation, so a dimmed `+1 model` can show after a call.
@@ -758,13 +792,15 @@ The state lasts for one conversation. `/clear`, `/resume` and `/branch` reset it
 - `run`: the session id, the start time and the repo of the conversation.
 - `totals`: per model, per scope, the counts `input`, `output`, `cacheRead`, `cacheWrite`, `requests`, and the weighted `cost`.
 - `causes`: per cause, the cache-write tokens and the weighted cost.
-- `main`: `lastRequestAt`, `contextTokens`, `model`, `isWorking`, `requestTimes` (the times of the main requests of the last 4 hours) and `resumes` (the time and the weighted cost of each resume in the last 4 hours).
+- `main`: `lastRequestAt`, `ttl` (the confirmed cache life of the last main request, or null), `contextTokens`, `model`, `isWorking`, `requests` (the time and the cache life of each main request of the last 4 hours) and `resumes` (the time and the weighted cost of each resume in the last 4 hours). A request that neither reads nor writes the cache changes only `model` and `contextTokens`. State of an older version has `requestTimes` instead of `requests`: `requestsOf` reads those times with 1 hour.
 - `contextTokens` is input plus cache read plus cache write plus output of the last main request.
 - `limits`: the last `rateLimits` list.
 - `limitsAt`: the time of that reading. `session.measure` sets it to the time of the event. The limits are those of the last API response of the session, so `/clear`, `/resume` and `/branch` reload them with the `limitsAt` of the conversation before. Only without an earlier reading do they count as read at the time of the reload.
 - `readings`: the limit readings of this conversation.
 - `agents`: the map from `agentId` to subagent type.
-- `threads`: per thread, the time of the last request.
+- `threads`: per thread, the time of the last request that read or wrote the cache.
+- `threadTtls`: per thread, the cache life of that request.
+- `lifetimes`: per scope, the confirmed cache life and a pending match (see Cache life). `/clear`, `/resume` and `/branch` keep it: the life follows the plan and the settings, not the conversation.
 - `hours`: the hourly buckets, keyed by UTC hour, then by `model|scope`.
 - `tab`: the selected tab of the pane.
 - `breakdown`: the last context breakdown, for tab 4.
@@ -787,6 +823,7 @@ Each conversation writes one key, `run:<session id>:<start time>`. The band sett
   "model": "claude-fable-5-1",
   "updatedAt": 1791374400000,
   "lastMainRequestAt": 1791374400000,
+  "mainTtl": "1h",
   "contextTokens": 412000,
   "isWorking": false,
   "readings": [{ "at": 1791374400000, "kind": "seven_day", "percentUsed": 41, "resetsAt": "2026-10-12T00:00:00Z", "seenAt": 1791378000000 }],
@@ -795,6 +832,7 @@ Each conversation writes one key, `run:<session id>:<start time>`. The band sett
 ```
 
 - `repo` is the folder name of the session root, without a `.worktrees/<name>` or `.claude/worktrees/<name>` suffix.
+- `mainTtl` is `main.ttl`, so the Now tab draws the tube of each session with its own cache life. A snapshot of an older version has no `mainTtl`, and its life counts as unknown.
 - `hours` is keyed by the UTC hour of the request. Hours older than 8 days are removed when the session writes.
 - The conversation keeps a reading each time a percent changes by a whole point or the reset changes, at most 400 readings. `at` is the time of the first measure of the reading. A later measure that keeps the percent within a whole point sets `seenAt` on the last reading of its kind, and does not change `at` or `percentUsed`. A reading without a later measure has no `seenAt`. The snapshot holds only the `seven_day` readings of the last 8 days.
 - A conversation writes its key only after its first request.
@@ -804,7 +842,10 @@ Each conversation writes one key, `run:<session id>:<start time>`. The band sett
 
 ## Prices
 
-The mod contains a price table for the weighting (`PRICES` in `hooks/prices.ts`). The source of the values is the Claude pricing page, read 2026-09-29. A price change needs an edit of the table in the mod.
+The mod contains a price table for the weighting (`PRICES` in `hooks/prices.ts`). The source of the values is the Claude pricing page, read 2026-10-08. A price change needs an edit of the table in the mod. The match of the cache life needs the prices to the cent, because Claude Code books the same prices.
+
+- Haiku 5.5 has a higher price for a prompt above 100,000 tokens. Its entry holds `above: { tokens: 100000, rates }`. The prompt is the input, the cache read and the cache write of the request. `ratesOf(price, promptTokens)` gives the rates of a request.
+- `costOf(usage, ttl)` and `writeCostOf(usage, ttl)` take the cache life of the request. `rewarmCost(model, contextTokens, ttl)` prices the whole context as one cache write.
 
 ### Fallback price
 
@@ -904,6 +945,7 @@ The pure functions do not call the mods API and do not read the clock. The time 
 - Money columns: every money column of the four tabs holds `$9,999.99` without a cut, and a Week share row shows its cents.
 - Prices: the version comparison (number by number, a missing part as 0, `10` above `9`); the newest key of each family; an exact price for a date and a `[1m]` variant; the fallback price of `claude-opus-5-6` and `claude-opus-4-9` (both from `claude-opus-5-5`) and `claude-sonnet-6`; no price for `claude-mythos-1`; the cost functions with the fallback price; a hook test that stores the fallback cost of a request.
 - Mark `≈` on both surfaces: the Session table and the Week table `by model and scope` show ` ≈` after the name of a fallback row, also when the name is cut, with the widths unchanged; no mark for an exact price, in the Now tab, the total row and the table `by repo`; the band reads `≈ $3.29 to re-warm` for a fallback price and has no second `≈` in the COLD label.
+- Cache life: `matchLifetime` for a 1-hour and a 5-minute booking, and no match for a rise with another booking in it, twice the price, no reading, no cache write, a fallback price and no price; `confirmLifetime` (first match, a pending match, two in a row, a request without a match); `ttlFromResume` at the limits of 5 minutes and 1 hour; `fraction`, `minutesLeft` and `minutesCold` with 5 minutes and with an unknown life; the strip with the life of each request; `requestsOf` for state of an older version; the snapshot with and without `mainTtl`. The hook and draw tests use a stub of the session cost that books each request at a chosen life, or at a price that fits none (`tests/helpers.ts`, option `booking`, and `ledger.during` for a cost that another request books while a request runs). They check the 5-minute countdown and re-warm cost, `cache life unknown`, the two matches in a row, a cost booked inside and before the window, a session cost that falls, the three outcomes of a resume, the life at a model switch, a request without cache, the costs of a subagent at 1 hour, and the cause of a cache write against the life of the previous request. Haiku 5.5 below and above 100,000 prompt tokens, and the read price of Sonnet 5.5.
 - `scripts/price-rule.mjs`: the same answer as `priceInfo` for the same table, `PRICE_KEYS` equal to the keys of `PRICES` in order, the model ids read from a store value, and the report lines.
 - Week history and day axis on both surfaces: the label `week used, over time`; a future period is a dimmed `·` on the terminal and an outline rect without a fill rect in the `Svg`; the axis row has the exact names on the terminal and 7 `Box` elements of `width` 2 on the desktop; the axis starts at the weekday of the start of the week, tested for a week that starts on Sunday and one that starts on Wednesday; a week without a reading has no axis row; the head grid keeps its widths at 80, 62 and 45 columns.
 - Selected row of tab 1 on both surfaces: the current row has `backgroundColor: 'selectionBg'` on its row `Box` and bold string cells, the other rows and the header have no background, no `Text` has a `backgroundColor`, no `Text` holds `>`, and the row keeps its background when columns drop. The draw tests mount the pane on both surfaces with a second session in the store, so that the engine checks the prop.
@@ -924,14 +966,15 @@ The pure functions do not call the mods API and do not read the clock. The time 
 
 ## Manual verification
 
-- CLI: start `claude --plugin-dir /path/to/token-watch`. Check the band, the cache tube over 60 minutes without input, the pane with its five tabs, and a second session in tab 1. Read tab 5 against the band and the tabs.
+- CLI: start `claude --plugin-dir /path/to/token-watch`. Check the band, the cache tube over its cache life without input (1 hour on a subscription, 5 minutes with `FORCE_PROMPT_CACHING_5M=1`), the pane with its five tabs, and a second session in tab 1. Read tab 5 against the band and the tabs.
 - Desktop app: the same checks in a Code tab session.
 - Compare the session totals with the session transcript.
 - `/token-watch recommend` in the CLI and in the desktop app: the dialog shows the cost, Cancel and Esc close it without a call, Ask shows the reply, and the Session tab shows the row `sonnet ≈` `recommend`.
 - Band buttons in the CLI and in the desktop app: the buttons sit at the right end, a click on `[ details ]` opens and closes the pane, the label follows, Esc on the pane turns the label back to `details`, and the native buttons of the desktop app fit beside the band text. `×` hides the band in this session and not in a second session, and `/token-watch band on` shows it again. In the CLI, ctrl+x tab and then Enter or `t` press `[ details ]`, and Tab moves to `×`.
 - Band setting: `/token-watch band off` in one session hides the band there at once and in a second session within 15 seconds; `/token-watch band on` shows both again; the setting stays after a new session starts.
 - `claude --settings '{"env":{"CLAUDE_CODE_PLUGIN_DIRS":""}}'` starts a CLI session without the mod of a clone (checked on 2026-10-08: no band). A shell variable does not: `CLAUDE_CODE_PLUGIN_DIRS=<path> claude` loaded the clone of `settings.json`, although `claude plugin list` showed the path of the variable.
-- To check a branch in a live CLI session while `settings.json` loads the clone: `claude --settings '{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"/path/to/worktree"}}'`.
+- To check a branch in a live CLI session while `settings.json` loads the clone: `claude --settings '{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"/path/to/worktree"}}'`. In `claude -p` this did not replace the clone (checked on 2026-10-09: the snapshot came from the clone); `claude -p --plugin-dir /path/to/worktree` ran the branch.
+- Cache life against Claude Code (checked on 2026-10-09 with 2.1.294, `claude -p --model haiku --plugin-dir <worktree>`): a main conversation on a subscription, the same with `FORCE_PROMPT_CACHING_5M=1`, two parallel `Explore` subagents, and a session with 8 requests above 100,000 prompt tokens. In each run the cost total of the snapshot equals `total_cost_usd` of the run, so each request matched. `mainTtl` was `1h`, `5m`, `1h` and `1h`, and the split of each request in the transcript agreed, with 5 minutes for the subagents. Headless `/usage` shows no `Prompt cache (main)` line; that line needs an interactive session.
 
 ## Installation
 

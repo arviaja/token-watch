@@ -1,24 +1,26 @@
 import { expect, test } from 'claude-code/testing'
 import { barSvg, fraction, heat, heatText, minutesCold, minutesLeft, sparkSvg, stageOf, stripCellAt, stripCells, stripSvg, tubeAlt, tubeCells } from '../hooks/temperature'
+import { reqs } from './helpers'
+import { NO_LIFETIME, confirmLifetime, ttlFromResume } from '../hooks/temperature'
 
 const T0 = Date.UTC(2026, 9, 6, 12, 0, 0)
 const MIN = 60_000
 
 test('fraction falls from 1 to 0 over the 60-minute lifetime', async () => {
-  expect(fraction(T0, T0, false)).toBe(1)
-  expect(fraction(T0, T0 + 30 * MIN, false)).toBe(0.5)
-  expect(fraction(T0, T0 + 60 * MIN, false)).toBe(0)
-  expect(fraction(T0, T0 + 90 * MIN, false)).toBe(0)
+  expect(fraction(T0, T0, false, '1h')).toBe(1)
+  expect(fraction(T0, T0 + 30 * MIN, false, '1h')).toBe(0.5)
+  expect(fraction(T0, T0 + 60 * MIN, false, '1h')).toBe(0)
+  expect(fraction(T0, T0 + 90 * MIN, false, '1h')).toBe(0)
 })
 
 test('fraction is 1 in a turn and null before the first request', async () => {
-  expect(fraction(null, T0, true)).toBe(1)
-  expect(fraction(null, T0, false)).toBeNull()
+  expect(fraction(null, T0, true, '1h')).toBe(1)
+  expect(fraction(null, T0, false, '1h')).toBeNull()
 })
 
 test('a last request in the future gives a full tube and at most 60 minutes', async () => {
-  expect(fraction(T0 + 5 * MIN, T0, false)).toBe(1)
-  expect(minutesLeft(T0 + 5 * MIN, T0)).toBe(60)
+  expect(fraction(T0 + 5 * MIN, T0, false, '1h')).toBe(1)
+  expect(minutesLeft(T0 + 5 * MIN, T0, '1h')).toBe(60)
 })
 
 test('stageOf uses the thresholds of the spec', async () => {
@@ -32,10 +34,10 @@ test('stageOf uses the thresholds of the spec', async () => {
 })
 
 test('minutesLeft rounds up and minutesCold rounds down', async () => {
-  expect(minutesLeft(T0, T0 + 13 * MIN + 1)).toBe(47)
-  expect(minutesLeft(T0, T0 + 61 * MIN)).toBe(0)
-  expect(minutesCold(T0, T0 + 75 * MIN + 30_000)).toBe(15)
-  expect(minutesCold(T0, T0 + 30 * MIN)).toBe(0)
+  expect(minutesLeft(T0, T0 + 13 * MIN + 1, '1h')).toBe(47)
+  expect(minutesLeft(T0, T0 + 61 * MIN, '1h')).toBe(0)
+  expect(minutesCold(T0, T0 + 75 * MIN + 30_000, '1h')).toBe(15)
+  expect(minutesCold(T0, T0 + 30 * MIN, '1h')).toBe(0)
 })
 
 test('heat interpolates between the four colour stops', async () => {
@@ -118,7 +120,7 @@ test('heat alone does not read on white in the orange part, which is why text us
 })
 
 test('tubeCells fills from the cold end and shows the rest as an eighth block', async () => {
-  const f = fraction(T0, T0 + 13 * MIN, false) as number
+  const f = fraction(T0, T0 + 13 * MIN, false, '1h') as number
   const cells = tubeCells(f, 16)
   expect(cells.length).toBe(16)
   expect(cells.slice(0, 12).every((c) => c.char === '█' && !c.isEmpty)).toBe(true)
@@ -136,7 +138,7 @@ test('tubeCells is full at 1 and empty at 0 and below one eighth', async () => {
 
 test('tubeCells shows a full cell when float noise puts the length just below a whole number', async () => {
   // 1 - 54 / 60 is 0.09999999999999998, so 10 cells hold 0.9999999999999998
-  const f = fraction(T0, T0 + 54 * MIN, false) as number
+  const f = fraction(T0, T0 + 54 * MIN, false, '1h') as number
   const cells = tubeCells(f, 10)
   expect(cells[0].char).toBe('█')
   expect(cells[0].isEmpty).toBe(false)
@@ -147,7 +149,7 @@ test('tubeCells shows a full cell when float noise puts the length just below a 
 test('stripCells has 48 cells and shows a cold gap', async () => {
   const now = T0 + 240 * MIN
   const times = [T0 + 10 * MIN, T0 + 200 * MIN]
-  const cells = stripCells(times, now)
+  const cells = stripCells(reqs(times), now)
   expect(cells.length).toBe(48)
   expect(cells[0].char).toBe(' ')
   expect(cells[2].char).toBe('█')
@@ -182,7 +184,7 @@ test('stripCellAt uses the cells of the strip: a cell holds the 5 minutes that e
 test('a resume is in the first cell of the strip that is warm because of it', async () => {
   const now = T0 + 240 * MIN
   for (const at of [T0 + 100 * MIN, T0 + 137 * MIN, now]) {
-    const warm = stripCells([at], now).findIndex((c) => c.char === '█')
+    const warm = stripCells(reqs([at]), now).findIndex((c) => c.char === '█')
     expect(stripCellAt(at, now)).toBe(warm)
   }
 })
@@ -244,7 +246,7 @@ test('stripSvg draws nothing for no data, a background for a cold cell and a ful
 })
 
 test('stripSvg is 14 high and has no triangle, also for the strip of a session with resumes', async () => {
-  const cells = stripCells([T0 + 10 * MIN, T0 + 200 * MIN], T0 + 240 * MIN)
+  const cells = stripCells(reqs([T0 + 10 * MIN, T0 + 200 * MIN]), T0 + 240 * MIN)
   const svg = stripSvg(cells)
   expect(svg).toContain('width="432" height="14" viewBox="0 0 432 14"')
   expect(svg).not.toContain('<polygon')
@@ -319,4 +321,53 @@ test('tubeAlt names the percent left, or a cold cache', async () => {
   expect(tubeAlt(1)).toBe('cache 100% left')
   expect(tubeAlt(0)).toBe('cache cold')
   expect(tubeAlt(0.004)).toBe('cache 1% left')
+})
+
+test('fraction, minutesLeft and minutesCold use the cache life', async () => {
+  expect(fraction(T0, T0 + 150_000, false, '5m')).toBe(0.5)
+  expect(fraction(T0, T0 + 5 * MIN, false, '5m')).toBe(0)
+  expect(minutesLeft(T0, T0 + MIN + 1, '5m')).toBe(4)
+  expect(minutesLeft(T0 + 5 * MIN, T0, '5m')).toBe(5)
+  expect(minutesCold(T0, T0 + 6 * MIN + 30_000, '5m')).toBe(1)
+})
+
+test('an unknown cache life gives no fraction until the longest life has passed, and counts the cold minutes from there', async () => {
+  expect(fraction(T0, T0 + 13 * MIN, false, null)).toBeNull()
+  expect(fraction(T0, T0 + 60 * MIN, false, null)).toBeNull()
+  expect(fraction(T0, T0 + 61 * MIN, false, null)).toBe(0)
+  expect(fraction(T0, T0, true, null)).toBe(1)
+  expect(minutesCold(T0, T0 + 75 * MIN, null)).toBe(15)
+})
+
+test('confirmLifetime takes the first match, and a different life only after two matches in a row', async () => {
+  let l = confirmLifetime(NO_LIFETIME, null)
+  expect(l).toEqual({ known: null, pending: null })
+  l = confirmLifetime(l, '1h')
+  expect(l).toEqual({ known: '1h', pending: null })
+  l = confirmLifetime(l, '5m')
+  expect(l).toEqual({ known: '1h', pending: '5m' })
+  // A request without a match keeps the pending match; the known life again drops it
+  expect(confirmLifetime(l, null)).toEqual({ known: '1h', pending: '5m' })
+  expect(confirmLifetime(l, '1h')).toEqual({ known: '1h', pending: null })
+  expect(confirmLifetime(l, '5m')).toEqual({ known: '5m', pending: null })
+})
+
+test('ttlFromResume reads the cache life that a resume proves, and null when both or none fit', async () => {
+  expect(ttlFromResume(301, false)).toBe('1h')
+  expect(ttlFromResume(600, false)).toBe('1h')
+  expect(ttlFromResume(300, false)).toBeNull()
+  expect(ttlFromResume(600, true)).toBe('5m')
+  expect(ttlFromResume(3600, true)).toBe('5m')
+  expect(ttlFromResume(3601, true)).toBeNull()
+  // Expired within 5 minutes fits no life
+  expect(ttlFromResume(120, true)).toBeNull()
+  expect(ttlFromResume(600, undefined)).toBeNull()
+})
+
+test('stripCells colours each cell with the cache life of the last request before it', async () => {
+  const now = T0 + 240 * MIN
+  expect(stripCells([{ at: now - 30 * MIN, ttl: '5m' }], now)[47].char).toBe('░')
+  expect(stripCells([{ at: now - 30 * MIN, ttl: '1h' }], now)[47].char).toBe('█')
+  // A later 5-minute request ends the warm time of an earlier 1-hour request
+  expect(stripCells([{ at: now - 40 * MIN, ttl: '1h' }, { at: now - 30 * MIN, ttl: '5m' }], now)[47].char).toBe('░')
 })

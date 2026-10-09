@@ -22,12 +22,24 @@ export type Reading = { at: number; kind: string; percentUsed: number; resetsAt?
 
 export type Resume = { at: number; cost: number }
 
+// The lifetime of a cache write: 5 minutes or 1 hour
+export type Ttl = '5m' | '1h'
+
+// The lifetime of the cache writes of one scope (main, or a subagent type), read from the cost that Claude Code books for each request.
+// known: the confirmed lifetime, or null before the first match. pending: a match that differs from known. A second match in a row confirms it
+export type Lifetime = { known: Ttl | null; pending: Ttl | null }
+
+// A main request of the last 4 hours, with the lifetime that its cost used
+export type MainRequest = { at: number; ttl: Ttl }
+
 export type Main = {
   model: string
   lastRequestAt: number | null
+  // The confirmed lifetime of the cache of the last main request, or null when the mod does not know it
+  ttl: Ttl | null
   contextTokens: number
   isWorking: boolean
-  requestTimes: number[]
+  requests: MainRequest[]
   resumes: Resume[]
 }
 
@@ -41,6 +53,8 @@ export type Snapshot = {
   model: string
   updatedAt: number
   lastMainRequestAt: number | null
+  // The ttl of Main. A snapshot of an older version has none and counts as unknown
+  mainTtl?: Ttl | null
   contextTokens: number
   isWorking: boolean
   readings: Reading[]
@@ -90,6 +104,10 @@ declare module 'claude-code' {
       readings: Reading[]
       agents: Record<string, string>
       threads: Record<string, number>
+      // The lifetime of the last request of each thread, so that the gap to the next request is compared with the lifetime of the cache that it can read
+      threadTtls: Record<string, Ttl>
+      // The lifetime of each scope: main, or a subagent type
+      lifetimes: Record<string, Lifetime>
       hours: Hours
       tab: number
       breakdown: Breakdown | null

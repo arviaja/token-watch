@@ -1,8 +1,8 @@
-import type { Breakdown, Cause, Causes, Counts, Limit, Main, Recommend, Resume, Snapshot, Totals } from '../types'
-import { cell, dayTime, desktopCells, fitColumns, formatMoney, formatPercent, formatTokens, historyCells, limitItems, limitsAgeText, markedCell, modelsText, placeMarks, projectionText, shortModel, tubeLabel, weekDayNames, type Column, type HistoryCell, type LimitItem, type PlacedMarks, type ResumeMark } from './format'
+import type { Breakdown, Cause, Causes, Counts, Limit, Main, MainRequest, Recommend, Resume, Snapshot, Totals } from '../types'
+import { cell, dayTime, desktopCells, fitColumns, formatMoney, formatPercent, formatTokens, historyCells, limitItems, limitsAgeText, markedCell, modelsText, placeMarks, projectionText, shortModel, tubeLabel, unknownLabel, UNKNOWN_LIFE, weekDayNames, type Column, type HistoryCell, type LimitItem, type PlacedMarks, type ResumeMark } from './format'
 import { priceInfo, rewarmCost } from './prices'
 import { RECOMMEND_SCOPE, priceSourceOf } from './recommend'
-import { barSvg, fraction, heat, heatText, minutesLeft, sparkSvg, stageOf, stripCellAt, stripCells, stripSvg, tubeAlt, tubeCells, type Cell, type Stage, type StripCell } from './temperature'
+import { barSvg, defaultTtl, fraction, heat, heatText, minutesLeft, sparkSvg, stageOf, stripCellAt, stripCells, stripSvg, tubeAlt, tubeCells, type Cell, type Stage, type StripCell } from './temperature'
 import { STRIP_MS, groupWeek, mergeReadings, modelSums, weekOf, type NowRow, type Row, type Share } from './tally'
 
 type El = (props: Record<string, any>) => unknown
@@ -68,7 +68,7 @@ export type SessionData = {
   rows: Row[]
   total: Counts
   causes: Causes
-  requestTimes: number[]
+  requests: MainRequest[]
   resumes: Resume[]
   now: number
   usd: number | null
@@ -95,14 +95,18 @@ function share(part: number, whole: number): string {
 }
 
 export function bandData(main: Main, totals: Totals, limits: Limit[], limitsAt: number | null, now: number): BandData | null {
-  const f = fraction(main.lastRequestAt, now, main.isWorking)
+  const ttl = main.ttl ?? null
+  const f = fraction(main.lastRequestAt, now, main.isWorking, ttl)
   const stage = f === null ? null : stageOf(f, main.isWorking)
-  // The re-warm cost of a model without a price is left out; a cost from a fallback price shows with ≈
+  // The re-warm cost of a model without a price is left out; a cost from a fallback price shows with ≈.
+  // The next message writes with the lifetime of the last one, or with the default before the mod knows it
   const info = priceInfo(main.model)
-  const label = stage === null ? '' : tubeLabel(stage, main.lastRequestAt, now, main.contextTokens, info === undefined ? null : rewarmCost(main.model, main.contextTokens), info?.source === 'fallback')
+  const rewarm = info === undefined ? null : rewarmCost(main.model, main.contextTokens, ttl ?? defaultTtl(false))
+  // Without a known lifetime the tube shows no countdown, only the time since the last request
+  const label = stage !== null ? tubeLabel(stage, main.lastRequestAt, now, main.contextTokens, rewarm, info?.source === 'fallback', ttl) : main.lastRequestAt === null ? '' : unknownLabel(main.lastRequestAt, now)
   const items = limitItems(limits, limitsAt, now)
   const { models, more } = bandModels(totals)
-  if (f === null && items.length === 0 && models === '') return null
+  if (f === null && label === '' && items.length === 0 && models === '') return null
   // The tube label already names the context size
   const context = stage === null && main.contextTokens > 0 ? formatTokens(main.contextTokens) : ''
   return { fraction: f, stage, label, limits: items, limitsAge: items.length === 0 ? '' : limitsAgeText(limitsAt, now), context, models, more }
@@ -130,10 +134,10 @@ export function weekData(snaps: Snapshot[], now: number): WeekData {
 }
 
 function nowStage(r: NowRow, now: number): { f: number | null; stage: Stage | null; minutes: string } {
-  const f = fraction(r.lastMainRequestAt, now, r.isWorking)
+  const f = fraction(r.lastMainRequestAt, now, r.isWorking, r.mainTtl)
   const stage = f === null ? null : stageOf(f, r.isWorking)
   const isCounting = stage === 'HOT' || stage === 'WARM' || stage === 'COOLING'
-  return { f, stage, minutes: isCounting && r.lastMainRequestAt !== null ? minutesLeft(r.lastMainRequestAt, now) + 'm' : '' }
+  return { f, stage, minutes: isCounting && r.lastMainRequestAt !== null && r.mainTtl !== null ? minutesLeft(r.lastMainRequestAt, now, r.mainTtl) + 'm' : '' }
 }
 
 // The cache column as text: 8 tube cells, space, stage padded to 7, space, minutes right-aligned in 4; cell() pads it to 22
@@ -245,6 +249,7 @@ const dim = (value: string): Segment => ({ value, style: { dimColor: true } })
 function bandSegments(d: BandData, shown: Set<BandPart>): Segment[] {
   const segments: Segment[] = []
   if (d.fraction !== null && d.stage !== null) segments.push({ value: ' ' }, { value: d.stage, style: { bold: true, color: heatText(d.fraction) } }, dim(' ' + d.label))
+  else if (d.label !== '') segments.push(dim(d.label))
   const add = (prefix: string, ...group: Segment[]) => {
     if (group[0].value === '') return
     if (segments.length > 0) segments.push(dim(' | '))
@@ -466,7 +471,7 @@ function axisPieces(cells: number): Piece[] {
 // The cache history in the columns of the cause table: the strip, the resumes at their cells and the time axis
 function historyGrid(E: Els, d: SessionData, available: number | undefined, surface: string): unknown {
   const width = HISTORY_COLUMNS[1].width
-  const cells = stripCells(d.requestTimes, d.now)
+  const cells = stripCells(d.requests, d.now)
   // The state drops old resumes only at the next request, so the strip window decides which resumes count
   const marks = d.resumes
     .filter((r) => r.at > d.now - STRIP_MS)
@@ -590,13 +595,14 @@ const HELP: HelpSection[] = [
   {
     title: 'Band above the prompt',
     entries: [
-      { term: '', look: 'tube', text: 'Cache of this conversation. Full after each request, empty after 60 minutes. Blue is cold, red is hot.' },
+      { term: '', look: 'tube', text: 'Cache of this conversation. Full after each request, empty when the cache life ends: 1 hour or 5 minutes, read from the cost that Claude Code books. Blue is cold, red is hot.' },
       { term: 'LIVE', look: 'stage', text: 'A turn runs.' },
-      { term: 'HOT', look: 'stage', text: 'More than 2/3 of the cache hour is left.' },
-      { term: 'WARM', look: 'stage', text: '1/3 to 2/3 of the hour is left.' },
-      { term: 'COOLING', look: 'stage', text: 'Less than 1/3 of the hour is left.' },
+      { term: 'HOT', look: 'stage', text: 'More than 2/3 of the cache life is left.' },
+      { term: 'WARM', look: 'stage', text: '1/3 to 2/3 of the cache life is left.' },
+      { term: 'COOLING', look: 'stage', text: 'Less than 1/3 of the cache life is left.' },
       { term: 'COLD', look: 'stage', text: 'The cache expired. The next message writes it again.' },
       { term: '47m left', text: 'Minutes until the cache expires.' },
+      { term: UNKNOWN_LIFE, text: 'The mod has not read the cache life yet. The band shows the time since the last request, no countdown.' },
       { term: '412k cached', text: 'Tokens in the cache: the context.' },
       { term: '$8.24 to re-warm', text: 'What the next message costs to write them again.' },
       { term: 'week 41% · 5h 12%', text: 'Plan limits used, as Claude Code reports them.' },

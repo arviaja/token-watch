@@ -1,5 +1,33 @@
-export const MAIN_TTL_MS = 60 * 60_000
-export const SUB_TTL_MS = 5 * 60_000
+import type { Lifetime, MainRequest, Ttl } from '../types'
+
+export const TTL_MS: Record<Ttl, number> = { '5m': 5 * 60_000, '1h': 60 * 60_000 }
+const LONGEST_TTL_MS = TTL_MS['1h']
+
+// Before the mod knows a lifetime it prices with the default of Claude Code: 1 hour for the main conversation on a subscription, 5 minutes for a subagent
+export function defaultTtl(isSubagent: boolean): Ttl {
+  return isSubagent ? '5m' : '1h'
+}
+
+export const NO_LIFETIME: Lifetime = { known: null, pending: null }
+
+// The first match sets the lifetime. A different lifetime needs two matches in a row, so one booking that fits by chance changes nothing.
+// A request without a match (null) leaves the lifetime and the pending match as they are
+export function confirmLifetime(l: Lifetime, match: Ttl | null): Lifetime {
+  if (match === null) return l
+  if (l.known === null) return { known: match, pending: null }
+  if (match === l.known) return l.pending === null ? l : { ...l, pending: null }
+  return l.pending === match ? { known: match, pending: null } : { ...l, pending: match }
+}
+
+// The lifetime that a resumed conversation proves: Claude Code says whether the time since the last response is longer than the lifetime.
+// Warm after more than 5 minutes proves 1 hour. Expired after more than 5 minutes and within 1 hour proves 5 minutes.
+// Else both lives fit, or none does (expired within 5 minutes), and the result is null
+export function ttlFromResume(seconds: number, isExpired: unknown): Ttl | null {
+  const ms = seconds * 1000
+  if (isExpired === false && ms > TTL_MS['5m']) return '1h'
+  if (isExpired === true && ms > TTL_MS['5m'] && ms <= TTL_MS['1h']) return '5m'
+  return null
+}
 
 const STRIP_CELLS = 48
 const STRIP_CELL_MS = 5 * 60_000
@@ -23,10 +51,13 @@ function clamp(x: number): number {
   return Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0
 }
 
-export function fraction(lastAt: number | null, now: number, isWorking: boolean): number | null {
+// The part of the lifetime that is left, or null without a request. An unknown lifetime (ttl null) gives null, so the tube shows no countdown,
+// until the longest lifetime has passed: then the cache is cold for both lifetimes
+export function fraction(lastAt: number | null, now: number, isWorking: boolean, ttl: Ttl | null): number | null {
   if (isWorking) return 1
   if (lastAt === null) return null
-  return clamp(1 - (now - lastAt) / MAIN_TTL_MS)
+  if (ttl === null) return now - lastAt > LONGEST_TTL_MS ? 0 : null
+  return clamp(1 - (now - lastAt) / TTL_MS[ttl])
 }
 
 export function stageOf(f: number, isWorking: boolean): Stage {
@@ -37,12 +68,13 @@ export function stageOf(f: number, isWorking: boolean): Stage {
   return 'COLD'
 }
 
-export function minutesLeft(lastAt: number, now: number): number {
-  return Math.min(60, Math.max(0, Math.ceil((lastAt + MAIN_TTL_MS - now) / 60_000)))
+export function minutesLeft(lastAt: number, now: number, ttl: Ttl): number {
+  return Math.min(TTL_MS[ttl] / 60_000, Math.max(0, Math.ceil((lastAt + TTL_MS[ttl] - now) / 60_000)))
 }
 
-export function minutesCold(lastAt: number, now: number): number {
-  return Math.max(0, Math.floor((now - lastAt - MAIN_TTL_MS) / 60_000))
+// The minutes since the cache expired. An unknown lifetime counts from the end of the longest one, the time from which the cache is cold for sure
+export function minutesCold(lastAt: number, now: number, ttl: Ttl | null): number {
+  return Math.max(0, Math.floor((now - lastAt - (ttl === null ? LONGEST_TTL_MS : TTL_MS[ttl])) / 60_000))
 }
 
 function hex(n: number): string {
@@ -169,17 +201,17 @@ export function tubeAlt(f: number): string {
   return v <= 0 ? 'cache cold' : 'cache ' + Math.max(1, Math.round(v * 100)) + '% left'
 }
 
-// One cell for each 5 minutes of the last 4 hours, coloured by the temperature at the end of the cell
-export function stripCells(requestTimes: number[], now: number, mode: ColorMode = COLOR_MODE): StripCell[] {
+// One cell for each 5 minutes of the last 4 hours, coloured by the temperature at the end of the cell. Each request counts with its own lifetime
+export function stripCells(requests: MainRequest[], now: number, mode: ColorMode = COLOR_MODE): StripCell[] {
   const cells: StripCell[] = []
   for (let i = 0; i < STRIP_CELLS; i++) {
     const end = now - (STRIP_CELLS - 1 - i) * STRIP_CELL_MS
-    const before = requestTimes.filter((t) => t <= end)
-    if (before.length === 0) {
+    const last = requests.filter((r) => r.at <= end).reduce<MainRequest | null>((a, r) => (a === null || r.at >= a.at ? r : a), null)
+    if (last === null) {
       cells.push({ char: ' ', color: '' })
       continue
     }
-    const f = clamp(1 - (end - Math.max(...before)) / MAIN_TTL_MS)
+    const f = clamp(1 - (end - last.at) / TTL_MS[last.ttl])
     cells.push(f > 0 ? { char: '█', color: heat(f, mode) } : { char: '░', color: heat(0, mode) })
   }
   return cells

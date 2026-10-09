@@ -1,4 +1,4 @@
-import type { Counts, Limit, Reading } from '../types'
+import type { Counts, Limit, Reading, Ttl } from '../types'
 import { minutesCold, minutesLeft, type Stage } from './temperature'
 
 export type Align = 'left' | 'right'
@@ -220,12 +220,20 @@ export function limitProjection(limit: Limit, readAt: number | null, now: number
   return at !== null && at < resetAt && at > now ? ' → 100% ' + dayTime(at) : ''
 }
 
-// rewarm is the cost to write the context again, or null for a model without a price. isEstimated marks a cost from a fallback price with `≈`
-export function tubeLabel(stage: Stage, lastAt: number | null, now: number, contextTokens: number, rewarm: number | null, isEstimated: boolean = false): string {
+// rewarm is the cost to write the context again, or null for a model without a price. isEstimated marks a cost from a fallback price with `≈`.
+// ttl is the cache life of the last request. Only COLD and LIVE show without it: the other stages need a known life
+export function tubeLabel(stage: Stage, lastAt: number | null, now: number, contextTokens: number, rewarm: number | null, isEstimated: boolean, ttl: Ttl | null): string {
   const cached = formatTokens(contextTokens)
   if (stage === 'LIVE' || lastAt === null) return contextTokens > 0 ? 'in turn · ' + cached + ' cached' : 'in turn'
-  if (stage === 'COLD') return minutesCold(lastAt, now) + 'm · next message re-writes ' + cached + (rewarm === null ? '' : ' ≈ ' + formatMoney(rewarm))
-  return minutesLeft(lastAt, now) + 'm left · ' + cached + ' cached' + (rewarm === null ? '' : ' · ' + (isEstimated ? '≈ ' : '') + formatMoney(rewarm) + ' to re-warm')
+  if (stage === 'COLD' || ttl === null) return minutesCold(lastAt, now, ttl) + 'm · next message re-writes ' + cached + (rewarm === null ? '' : ' ≈ ' + formatMoney(rewarm))
+  return minutesLeft(lastAt, now, ttl) + 'm left · ' + cached + ' cached' + (rewarm === null ? '' : ' · ' + (isEstimated ? '≈ ' : '') + formatMoney(rewarm) + ' to re-warm')
+}
+
+export const UNKNOWN_LIFE = 'cache life unknown'
+
+// The band label before the mod knows the cache life: the time since the last request, and no countdown
+export function unknownLabel(lastAt: number, now: number): string {
+  return UNKNOWN_LIFE + ' · last request ' + Math.max(0, Math.floor((now - lastAt) / 60_000)) + 'm ago'
 }
 
 export function modelsText(rows: { model: string; counts: Counts }[]): string {

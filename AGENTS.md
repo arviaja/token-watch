@@ -23,9 +23,9 @@ Everything in this repo is public: files, commit messages, branch names, tags, i
 - `hooks/view.ts`: the element trees of the band, the five tabs and the dialog of `/token-watch recommend`. It is pure: the caller passes the element table.
 - `hooks/recommend.ts`: pure functions of `/token-watch recommend`: the system prompt, the prompt from the data of the tabs, the input estimate, the highest cost, the price model of an alias and the text of a failed call.
 - `hooks/tally.ts`: pure functions for counts, causes of cache writes, snapshots, and the rows of the Now and Week tabs.
-- `hooks/temperature.ts`: cache lifetime, stages, heat colours, and the cells and SVG markup of the tube, the bars, the strip and the week history.
+- `hooks/temperature.ts`: the cache life (5 minutes or 1 hour, `confirmLifetime`, `ttlFromResume`), stages, heat colours, and the cells and SVG markup of the tube, the bars, the strip and the week history.
 - `hooks/format.ts`: text formats (tokens, money, percent), table cells and column fitting.
-- `hooks/prices.ts`: the price table, the fallback price of a model without a key (the price of the newest model of its family) and the cost functions.
+- `hooks/prices.ts`: the price table, the fallback price of a model without a key (the price of the newest model of its family), the cost functions by cache life, and `matchLifetime`: the cache life whose price gives the cost that Claude Code booked for a request.
 - `scripts/price-report.mjs` and `scripts/price-rule.mjs`: `make price-report`. `price-rule.mjs` holds the price rule of `hooks/prices.ts` for Node and a copy of the keys of `PRICES` (`PRICE_KEYS`), and it has no import so that the tests can load it. Change both rules and both key lists together: `tests/prices.test.ts` checks that they agree.
 - No file outside `hooks/` and `tests/` names a path in `hooks/` or reads a file there, and no script shares a name with a file of the mod. The plugin directory holds the review of a mod when the commands, scripts or configuration of the plugin point at the files of the mod.
 - `types/index.d.ts`: the types of the snapshot and the contract of the `$.state` values.
@@ -51,7 +51,7 @@ Tests are in `tests/` and run with `claude plugin test`:
 - Write each mods API call in full, for example `$.store.get(...)`. Never assign `$` or a noun of `$` to a variable.
 - Pass `$` only to a function that is declared in `register.ts`, or to `read` and `update`. Never pass it to an imported function.
 - The `plugin` and `key` of each state value are string literals. Declare each value in `types/index.d.ts`.
-- Keep data in `$.state` and `$.store`. A reload resets the variables of the module.
+- Keep data in `$.state` and `$.store`. A reload resets the variables of the module. One exception: `costSeen` in `register.ts`, the last session cost that the mod read. It must change with no `await` between its read and its write, and `$.state` reads one moment for each dispatch. A reload that resets it costs one match.
 - A `ui.render` hook reads state and never writes it. Write from a handler or from another event.
 - `Svg` exists only in the element tables of the remote surfaces (desktop app, editor, mobile). The terminal table has none. Code that draws one checks `E.Svg`.
 - `Svg` is a leaf. It cannot sit inside a `Text`. In a table it sits in its own `Box` with a width and `flexShrink: 0`, and it has no `width` or `height`.
