@@ -17,6 +17,7 @@ import {
   line,
   markedCell,
   placeMarks,
+  printable,
   projectionText,
   repoName,
   shortModel,
@@ -129,6 +130,25 @@ test('shortModel and repoName', async () => {
   expect(repoName('/Users/me/repos/webshop/.worktrees/fix-1-x')).toBe('webshop')
   expect(repoName('/Users/me/repos/webshop/.claude/worktrees/abc/')).toBe('webshop')
   expect(repoName('')).toBe('unknown')
+})
+
+test('printable drops the control characters of a name, tab and newline too, and keeps every other character', async () => {
+  expect(printable('web\u001b[31mshop')).toBe('web[31mshop')
+  expect(printable('a\u0000b\u0007c\td\ne\rf\u007fg\u009bh')).toBe('abcdefgh')
+  expect(printable('café-straße ≈ 東京')).toBe('café-straße ≈ 東京')
+  expect(printable('')).toBe('')
+})
+
+test('repoName drops the control characters of the folder name, and a name of only control characters is unknown', async () => {
+  expect(repoName('/Users/me/repos/web\u001bshop')).toBe('webshop')
+  expect(repoName('/Users/me/repos/web\nshop/.worktrees/fix-1-x')).toBe('webshop')
+  expect(repoName('/Users/me/repos/\u0007\u001b')).toBe('unknown')
+})
+
+test('cell drops the control characters before it pads and cuts, so the cell keeps the column width', async () => {
+  expect(cell('web\u001bshop', { width: 18, align: 'left' })).toBe('webshop           ')
+  expect(cell('\u0007$6.10', { width: 9, align: 'right' })).toBe('    $6.10')
+  expect(cell('data-\u001bpipeline-config', { width: 18, align: 'left' })).toBe('data-pipeline-co… ')
 })
 
 test('cell pads, aligns and cuts with an ellipsis', async () => {

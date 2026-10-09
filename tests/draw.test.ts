@@ -2,9 +2,10 @@ import { expect, test } from 'claude-code/testing'
 import { clockTime, dayTime } from '../hooks/format'
 import { heat, heatText } from '../hooks/temperature'
 import { bandCells } from '../hooks/view'
+import { hourKey } from '../hooks/tally'
 import { formatTokens } from '../hooks/format'
 import { RECOMMEND_SYSTEM, estimateTokens } from '../hooks/recommend'
-import { FABLE, MIN, REPLY, RESETS_AT, SONNET, T0, complete, harness, start, step } from './helpers'
+import { BREAKDOWN, FABLE, MIN, REPLY, RESETS_AT, SONNET, T0, complete, harness, start, step } from './helpers'
 import { HELP_SECTIONS } from './help-text'
 
 const BAND = {
@@ -471,6 +472,34 @@ test('the command says why the pane waits', async ($, on) => {
 })
 
 const OTHER = { v: 1, key: 'run:other:1', sessionId: 'other', repo: 'billing-service', model: 'claude-opus-5-5', updatedAt: T0, lastMainRequestAt: T0, contextTokens: 231_000, isWorking: false, readings: [], hours: {} }
+
+test('a name with a control character draws without it in the Now, Week and Why tabs, on both surfaces', async ($, on) => {
+  // A snapshot that an older version stored with the raw folder name, and a context breakdown with names from the file system and the configuration
+  const stored = { ...OTHER, repo: 'billing\u001b-service', hours: { [hourKey(T0)]: { 'claude-opus-5-5|main': { requests: 1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 2 } } } }
+  const breakdown = {
+    ...BREAKDOWN,
+    memoryFiles: [{ path: 'web\u0007shop/CLAUDE.md', type: 'Project', tokens: 9800 }],
+    mcpTools: [{ serverName: 'lin\u001bear', tokens: 11_200, isLoaded: true }],
+    agents: [{ agentType: 'rev\u009biewer', tokens: 300 }],
+  }
+  harness(on, { store: { 'run:other:1': stored }, breakdown })
+  await start($)
+  await step($, FABLE)
+  await complete($)
+  await $.command.run({ command: 'token-watch', args: '' })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'tab-1' })
+    expect(await ui.find({ type: 'Text', text: /^billing-service\s+$/ }), surface).toBeDefined()
+    await ui.press({ key: 'tab-3' })
+    expect(await ui.find({ type: 'Text', text: /^billing-service\s+$/ }), surface).toBeDefined()
+    await ui.press({ key: 'tab-4' })
+    expect(await ui.find({ type: 'Text', text: /^webshop\/CLAUDE\.md\s+$/ }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^linear\s+$/ }), surface).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^reviewer\s+$/ }), surface).toBeDefined()
+    await ui.unmount()
+  }
+})
 
 // The row Boxes of the Now table: a row Box has no width and holds the column Boxes
 // A row Box has no width, except a selected row, which ends with the table
