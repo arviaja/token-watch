@@ -96,8 +96,7 @@ async function tick($: any): Promise<void> {
     isDirty = false
     if (!(await flush($))) isDirty = true
   }
-  // The band of a session without plan limits (an API key) shows the spend of all sessions, so it needs their snapshots too
-  if ((await isOthersShown($)) || (await read($, limits)).length === 0) await loadOthers($)
+  if ((await isOthersShown($)) || (await isSpendShown($))) await loadOthers($)
   await loadSettings($)
 }
 
@@ -118,6 +117,13 @@ async function isOthersShown($: any): Promise<boolean> {
   if (!(await isPaneShown($))) return false
   const n = await read($, tab)
   return n === 1 || n === 3
+}
+
+// The band shows the spend of all sessions in place of the limits when a request came back without plan limits: an API key.
+// A subscription has its limits from the first response on. Only then does the tick read the snapshots of the other sessions for the band
+async function isSpendShown($: any): Promise<boolean> {
+  if ((await read($, limits)).length > 0 || (await read($, main)).lastRequestAt === null) return false
+  return (await read($, isBandOn)) && !(await read($, isBandHidden))
 }
 
 // A missing or unknown value shows the band
@@ -601,9 +607,10 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || !(await read($, isBandOn)) || (await read($, isBandHidden))) return next(e)
     const now = await $.clock.now()
+    const m = await read($, main)
     const planLimits = await read($, limits)
-    const spend = planLimits.length === 0 ? spendOf(await allSnapshots($, now), now) : null
-    const data = bandData(await read($, main), planLimits, await read($, limitsAt), now, spend)
+    const spend = planLimits.length === 0 && m.lastRequestAt !== null ? spendOf(await allSnapshots($, now), now) : null
+    const data = bandData(m, planLimits, await read($, limitsAt), now, spend)
     if (data === null) return next(e)
     const E = $.ui.resolve(e) as unknown as Els
     // What the mods after this one draw in the band stays, below this line

@@ -1,4 +1,4 @@
-import type { Breakdown, Cause, Causes, Counts, Limit, Main, MainRequest, Recommend, Resume, Snapshot, Totals } from '../types'
+import type { Breakdown, Cause, Causes, Counts, Limit, Main, MainRequest, Recommend, Resume, Snapshot } from '../types'
 import { actionOf, weekRange, type Action } from './advice'
 import { cell, dayTime, desktopCells, fitColumns, formatMoney, formatPercent, formatTokens, historyCells, limitsAgeText, markedCell, placeMarks, projectionText, shortModel, tubeParts, unknownLabel, UNKNOWN_LIFE, weekDayNames, type Column, type HistoryCell, type PlacedMarks, type ResumeMark } from './format'
 import { priceInfo, rewarmCost } from './prices'
@@ -61,8 +61,8 @@ const WEEK_DROP = [1]
 const WEEK_HEAD_DROP = [2]
 const WHY_DROP = [1, 3]
 
-// A limit in the band: its name and percent, the heat of the percent when it runs hot (5h full soon, week used up) or null,
-// the range of the week (`lasts until reset` dimmed, `runs out Fri 14:00` in heat) or null, and isKept for a limit that the action names
+// A limit in the band: its name and percent, the heat of the percent when it runs hot (5h full soon, week used up, any limit at 100%) or null,
+// the range of the week (`lasts until reset` dimmed, `runs out Fri 14:00` in heat) or null, and isKept for a limit that never leaves: one that the action names or one at 100%
 export type BandLimit = { kind: string; name: string; percent: string; heat: number | null; range: { text: string; heat: number | null } | null; isKept: boolean }
 
 // The band as a dashboard. lead never leaves: the minutes, `in turn`, or the label of an unknown cache life. context and price can leave.
@@ -131,13 +131,15 @@ function bandLimits(limits: readonly Limit[], limitsAt: number | null, now: numb
       const range = isWeek ? weekRange(l, limitsAt, now) : null
       const isUsedUp = isWeek && action?.kind === 'weekUsedUp'
       const isFull = l.kind === 'five_hour' && action?.kind === 'fiveHour'
+      // A limit at 100% or more runs hot and stays in the band whatever the action
+      const isAtLimit = l.percentUsed >= 100
       return {
         kind: l.kind,
         name: LIMIT_NAMES[l.kind] ?? l.kind,
         percent: formatPercent(l.percentUsed),
-        heat: isUsedUp ? 1 : isFull ? l.percentUsed / 100 : null,
+        heat: isUsedUp || isAtLimit ? 1 : isFull ? l.percentUsed / 100 : null,
         range: range === null ? null : range.kind === 'lasts' ? { text: 'lasts until reset', heat: null } : { text: 'runs out ' + dayTime(range.at), heat: RUNS_OUT_HEAT },
-        isKept: isUsedUp || isFull,
+        isKept: isUsedUp || isFull || isAtLimit,
       }
     })
   return action?.kind === 'fiveHour' ? [...items.filter((l) => l.kind === 'five_hour'), ...items.filter((l) => l.kind !== 'five_hour')] : items

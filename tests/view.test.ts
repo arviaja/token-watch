@@ -2173,3 +2173,10 @@ test('a band with only the label of an unknown cache life still shows, without l
   // Without a request the band stays away
   expect(bandData(NO_MAIN, [], null, T0)).toBeNull()
 })
+
+test('a limit at 100% stays in the band in the heat colour while an action shows', async () => {
+  // The 5-hour window is full, so it has no 5h action; the context of 640k gives /compact
+  const tree = bandEls(E, bandAt(T0 + 13 * MIN, { context: 640_000, limits: [weekLimit(41), fiveHourLimit(100)] }))
+  expect(afterTube(tree, 'terminal')).toBe('HOT 47m left · 640k cached | /compact: each message reads 640k ≈ $0.16 | week 41% | 5h 100%')
+  expect(propsOf(tree, '100%')?.color).toBe(heatText(1))
+})

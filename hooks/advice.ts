@@ -44,11 +44,11 @@ function hint(model: string): string {
 }
 
 // The range of the weekly limit, from the pace between the start of the week and the reading. Null without a reset time,
-// without a reading, at 100% or more, and when the time of 100% has passed (an old reading)
+// without a reading, at 100% or more, after the reset, and when the time of 100% has passed (an old reading)
 export function weekRange(limit: Limit | undefined, readAt: number | null, now: number): WeekRange | null {
   if (limit === undefined || readAt === null || limit.percentUsed >= 100) return null
   const resetAt = resetOf(limit)
-  if (resetAt === null) return null
+  if (resetAt === null || resetAt <= now) return null
   const at = fullAt(limit.percentUsed, resetAt - WEEK_MS, readAt)
   if (at === null || at >= resetAt) return { kind: 'lasts' }
   return at > now ? { kind: 'runsOut', at } : null
@@ -69,8 +69,10 @@ export function actionOf(d: AdviceInput): Action | null {
   const week = d.limits.find((l) => l.kind === 'seven_day')
   const fiveHour = d.limits.find((l) => l.kind === 'five_hour')
   const m = d.main
-  if (week !== undefined && week.percentUsed >= 100) {
-    const resetAt = resetOf(week)
+  // A reading of 100% counts until its reset; after the reset it is an old reading that the next response replaces
+  const weekResetAt = week === undefined ? null : resetOf(week)
+  if (week !== undefined && week.percentUsed >= 100 && (weekResetAt === null || weekResetAt > d.now)) {
+    const resetAt = weekResetAt
     return { kind: 'weekUsedUp', verb: 'week used up', rest: ': usage credits' + (resetAt === null ? '' : ' until ' + dayTime(resetAt)) }
   }
   const fullAt5h = fiveHourFullAt(fiveHour, d.limitsAt, d.now)

@@ -230,8 +230,8 @@ cache life unknown · last request 3m ago · 120k cached | week 41% · lasts unt
 - The label is the minutes (`47m left`, `15m`, `in turn`), the context (` · 120k cached`, or ` · next message re-writes 120k` when cold) and the re-warm price (` · $2.40 to re-warm`, or ` ≈ $2.40` when cold). `tubeParts` in `format.ts` gives the three parts. Before the mod knows the cache life, the label of an unknown life takes the place of the tube (see Cache life).
 - The action is one at a time, the verb in bold, the rest in the text colour (see Actions).
 - The limits: `week 41%` with its range, then `5h 12%` and the other limits. The range is `lasts until reset` (dimmed) or `runs out Fri 14:00` (in `heatText(0.9)`), see Range of the week. When the last limit reading is older than 30 minutes, its age follows the last limit, for example `5h 12% (2h ago)`.
-- The heat colour shows only on parts that run hot: `runs out Fri 14:00`, the 5-hour percent of the action `5h full`, and `week 100%` of the action `week used up`.
-- A session without plan limits (an API key) shows `today $12.40 · $4.10/h` in place of the limits: the cost of all sessions on this Mac since local midnight, and the weighted cost of the last 60 minutes, as the Now tab shows them per session (`spendOf` in `tally.ts`). The `· $4.10/h` part is dimmed.
+- The heat colour shows only on parts that run hot: `runs out Fri 14:00`, the 5-hour percent of the action `5h full`, and a limit at 100% or more (`week 100%`, `5h 100%`). A limit at 100% or more stays in the band whatever the action.
+- A session whose first response came back without plan limits (an API key) shows `today $12.40 · $4.10/h` in place of the limits. A subscription has its limits from the first response on, so before that response the band shows no spend: the cost of all sessions on this Mac since local midnight, and the weighted cost of the last 60 minutes, as the Now tab shows them per session (`spendOf` in `tally.ts`). The `· $4.10/h` part is dimmed.
 - Every cost is in dollars at API prices. On a subscription the dollars show what the same use costs with an API key. The limits stay in percent, as Claude Code reports them.
 - The band shows no model names and no token counts. The Session tab lists them.
 - Two buttons sit at the right end: `[ details ]` and `×` (see Band buttons). A `Box` with `flexGrow: 1` between the text and the buttons pushes them there.
@@ -284,7 +284,7 @@ cache life unknown · last request 3m ago · 120k cached | week 41% · lasts unt
 - The weekly limit (`seven_day`) and the 5-hour limit (`five_hour`) each have a window that ends at their reset (`resetsAt`). The weekly window starts 7 days before the reset, the 5-hour window 5 hours before. The spend limit has no window.
 - The pace is linear: the percent used, divided by the time from the start of the window up to the reading (`limitsAt`), extended to 100%. `fullAt(percent, start, readAt)` in `format.ts` gives the time of 100%.
 - The pace ends at the time of the reading, not at now. A pace up to now would put the 100% time of an old reading too late, because the time since the reading would count as time without use.
-- `weekRange(limit, readAt, now)` in `advice.ts` gives `lasts` when the week reaches 100% at or after its reset (or has no pace, at 0%), and `runsOut` with the time when it reaches 100% before. It gives no range without a reset time or a reading, at 100% or more, and when the 100% time is not after now (an old reading).
+- `weekRange(limit, readAt, now)` in `advice.ts` gives `lasts` when the week reaches 100% at or after its reset (or has no pace, at 0%), and `runsOut` with the time when it reaches 100% before. It gives no range without a reset time or a reading, at 100% or more, after the reset, and when the 100% time is not after now (an old reading). For the same reason `week used up` shows only while the reset of the reading is ahead.
 - The band shows `lasts until reset` dimmed, and `runs out Fri 14:00` with the day and the time in local time (`dayTime`), in the heat colour.
 - `fiveHourFullAt(limit, readAt, now)` gives the 100% time of the 5-hour window for the action `5h full`, when it is before the reset and within the next 60 minutes. The time shows as `clockTime`: `15:31`.
 
@@ -851,7 +851,7 @@ Each conversation writes one key, `run:<session id>:<start time>`. The band sett
 - A conversation writes its key only after its first request.
 - The session writes its key at most once every 15 seconds while it has new data, and once when the session ends.
 - 5 seconds after the session start, the mod deletes each `run:` key with an `updatedAt` older than 8 days.
-- The pane reads all `run:` keys when it opens, and every 15 seconds while it is shown on tab 1 or tab 3. A session without plan limits (an API key) reads them every 15 seconds too, for the spend of the band.
+- The pane reads all `run:` keys when it opens, and every 15 seconds while it is shown on tab 1 or tab 3. A session whose band shows the spend (an API key, see Band) reads them every 15 seconds too.
 
 ## Prices
 

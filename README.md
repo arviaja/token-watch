@@ -21,7 +21,7 @@ The mod only observes. It does not change, block or delay a request, a tool call
 
   The model hint names the next smaller model: Fable or Opus `use Sonnet`, Sonnet `use Haiku`, Haiku none. While an action shows, the re-warm price, `lasts until reset` and the 5-hour limit leave the band.
 - The weekly limit and its range: `week 41% · lasts until reset` (dimmed), or `week 76% · runs out Fri 14:00` in the heat colour when the week runs out before its reset at the pace so far. Then the 5-hour limit: `5h 12%`. The pace runs from the start of the window of the limit up to the reading. An old reading shows its age: `(2h ago)`.
-- With an API key, in place of the limits: `today $12.40 · $4.10/h`, the cost of all sessions on this Mac since midnight and in the last 60 minutes.
+- With an API key, in place of the limits, from the first response on: `today $12.40 · $4.10/h`, the cost of all sessions on this Mac since midnight and in the last 60 minutes.
 - Every cost is in dollars at API prices. On a subscription the dollars show what the same use costs with an API key.
 - Two buttons at the right end: `[ details ]` and `×`. `[ details ]` opens the pane, and while the pane is open it reads `[ close ]` and closes it. `×` hides the band in this session. In the desktop app a click presses them. In the terminal, ctrl+x tab moves the focus to `[ details ]`, Enter or `t` presses it, and Tab moves the focus to `×`. A press is not a slash command, so it adds nothing to the conversation.
 

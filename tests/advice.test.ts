@@ -125,3 +125,10 @@ test('/compact shows from 400k tokens, also with an unknown cache life, and name
   expect(at(T0 + 13 * MIN, { contextTokens: 640_000, model: 'claude-haiku-5-5' })?.rest).toBe(': each message reads 640k ≈ $0.03')
   expect(at(T0 + 13 * MIN, { contextTokens: 640_000, isWorking: true })).toBeNull()
 })
+
+test('a weekly reading of 100% whose reset has passed is an old reading: no week used up and no range', async () => {
+  // Three days after the last request the cache is cold: /clear, not week used up
+  expect(at(WEEK_RESET + MIN, {}, [week(100)])?.kind).toBe('clear')
+  expect(at(WEEK_RESET - MIN, {}, [week(100)])?.kind).toBe('weekUsedUp')
+  expect(weekRange(week(41), T0, WEEK_RESET + MIN)).toBeNull()
+})

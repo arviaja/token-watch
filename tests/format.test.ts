@@ -20,12 +20,17 @@ import {
   projectionText,
   repoName,
   shortModel,
-  tubeLabel,
   weekDayNames,
 } from '../hooks/format'
 
 import { unknownLabel } from '../hooks/format'
 import { clockTime, tubeParts } from '../hooks/format'
+
+// The label of the tube as the band joins its parts when it has the room
+const tubeLabel = (...args: Parameters<typeof tubeParts>) => {
+  const p = tubeParts(...args)
+  return p.lead + p.context + p.price
+}
 const MIN = 60_000
 const HOUR = 60 * MIN
 

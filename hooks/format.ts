@@ -233,11 +233,6 @@ export function tubeParts(stage: Stage, lastAt: number | null, now: number, cont
   return { lead: minutesLeft(lastAt, now, ttl) + 'm left', context: ' · ' + cached + ' cached', price: rewarm === null ? '' : ' · ' + (isEstimated ? '≈ ' : '') + formatMoney(rewarm) + ' to re-warm' }
 }
 
-export function tubeLabel(stage: Stage, lastAt: number | null, now: number, contextTokens: number, rewarm: number | null, isEstimated: boolean, ttl: Ttl | null): string {
-  const p = tubeParts(stage, lastAt, now, contextTokens, rewarm, isEstimated, ttl)
-  return p.lead + p.context + p.price
-}
-
 export const UNKNOWN_LIFE = 'cache life unknown'
 
 // The band label before the mod knows the cache life: the time since the last request, and no countdown

@@ -1385,3 +1385,24 @@ test('the pause counts against the life of the cache that the previous request l
   await complete($)
   expect(await resumeShare($)).toBe('    0%')
 })
+
+test('with an API key the band shows the spend from the first response on, and no spend before it, on both surfaces', async ($, on) => {
+  const h = harness(on, { rateLimits: [] })
+  await start($)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    expect(await ui.find({ type: 'Text', text: /^today / }), surface).toBeUndefined()
+    await ui.unmount()
+  }
+  await step($, SONNET)
+  await complete($)
+  await h.clock.advance(15_000)
+  await h.clock.settle()
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    const { text } = await bandLine(ui, surface)
+    expect(text, surface).toMatch(/\| today \$\d+\.\d\d · \$\d+\.\d\d\/h$/)
+    expect(text, surface).not.toContain('week')
+    await ui.unmount()
+  }
+})
