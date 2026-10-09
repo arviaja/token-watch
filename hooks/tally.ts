@@ -229,6 +229,11 @@ export function today(hours: Hours, now: number): number {
   return costIn(hours, localMidnight(now), now + HOUR_MS)
 }
 
+// The spend of all sessions: the cost since local midnight and the weighted cost of the last 60 minutes, as the Now tab shows them per session
+export function spendOf(snaps: Snapshot[], now: number): { today: number; perHour: number } {
+  return snaps.reduce((sum, s) => ({ today: sum.today + today(s.hours, now), perHour: sum.perHour + last60(s.hours, now) }), { today: 0, perHour: 0 })
+}
+
 export function nowRows(snaps: Snapshot[], currentKey: string, now: number): NowRow[] {
   const newest = new Map<string, Snapshot>()
   for (const s of snaps) {

@@ -6,7 +6,7 @@ import { repoName } from './format'
 import { costOf, matchLifetime, priceInfo, writeCostOf } from './prices'
 import { OUTPUT_CAP, RECOMMEND_EFFORT, RECOMMEND_SCOPE, RECOMMEND_SYSTEM, RECOMMEND_TIMEOUT_MS, drawableText, estimateTokens, failureText, maxCostOf, modelOption, priceModelOf, recommendPrompt, type CallUsage } from './recommend'
 import { NO_LIFETIME, TTL_MS, confirmLifetime, defaultTtl, ttlFromResume } from './temperature'
-import { KEEP_MS, NO_CAUSES, NO_MAIN, addCause, addReadings, addTo, breakdownOf, causeOf, contextOf, countsOf, hourKey, mainAfter, nowRows, parseSnapshot, requestsOf, rowsOf, runKey, snapshotOf, sumAll } from './tally'
+import { KEEP_MS, NO_CAUSES, NO_MAIN, addCause, addReadings, addTo, breakdownOf, causeOf, contextOf, countsOf, hourKey, mainAfter, nowRows, parseSnapshot, requestsOf, rowsOf, runKey, snapshotOf, spendOf, sumAll } from './tally'
 import { bandData, bandEls, helpEls, nowEls, paneEls, recommendEls, sessionEls, tabsEls, weekData, weekEls, whyEls, type Els } from './view'
 
 const run = atom({ plugin: 'token-watch', key: 'run' } as const, null)
@@ -96,7 +96,7 @@ async function tick($: any): Promise<void> {
     isDirty = false
     if (!(await flush($))) isDirty = true
   }
-  if (await isOthersShown($)) await loadOthers($)
+  if ((await isOthersShown($)) || (await isSpendShown($))) await loadOthers($)
   await loadSettings($)
 }
 
@@ -117,6 +117,13 @@ async function isOthersShown($: any): Promise<boolean> {
   if (!(await isPaneShown($))) return false
   const n = await read($, tab)
   return n === 1 || n === 3
+}
+
+// The band shows the spend of all sessions in place of the limits when a request came back without plan limits: an API key.
+// A subscription has its limits from the first response on. Only then does the tick read the snapshots of the other sessions for the band
+async function isSpendShown($: any): Promise<boolean> {
+  if ((await read($, limits)).length > 0 || (await read($, main)).lastRequestAt === null) return false
+  return (await read($, isBandOn)) && !(await read($, isBandHidden))
 }
 
 // A missing or unknown value shows the band
@@ -600,7 +607,10 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || !(await read($, isBandOn)) || (await read($, isBandHidden))) return next(e)
     const now = await $.clock.now()
-    const data = bandData(await read($, main), await read($, totals), await read($, limits), await read($, limitsAt), now)
+    const m = await read($, main)
+    const planLimits = await read($, limits)
+    const spend = planLimits.length === 0 && m.lastRequestAt !== null ? spendOf(await allSnapshots($, now), now) : null
+    const data = bandData(m, planLimits, await read($, limitsAt), now, spend)
     if (data === null) return next(e)
     const E = $.ui.resolve(e) as unknown as Els
     // What the mods after this one draw in the band stays, below this line

@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
-import { UNKNOWN_LIFE, cell, dayTime, fitColumns, historyCells, line, markedCell, type HistoryCell } from '../hooks/format'
+import { UNKNOWN_LIFE, cell, clockTime, dayTime, fitColumns, historyCells, line, markedCell, type HistoryCell } from '../hooks/format'
 import { barSvg, heat, heatText, sparkSvg, stageOf, stripCells, stripSvg, tubeAlt, tubeCells } from '../hooks/temperature'
 import { EMPTY, NO_CAUSES, NO_MAIN, addTo, countsOf, mainAfter, type NowRow } from '../hooks/tally'
-import type { Breakdown, Recommend, Snapshot } from '../types'
-import { CAUSE_COLUMNS, HISTORY_COLUMNS, NOW_COLUMNS, SESSION_COLUMNS, TAB_LABELS, WEEK_COLUMNS, WHY_COLUMNS, bandCells as cellsOfBand, bandData, bandEls, barEls, cellTexts, helpEls, nowCells, nowEls, recommendEls, sessionCells, sessionEls, sparkEls, stripEls, svgBox, tableEls, tabsEls, weekData, weekEls, whyEls, type Els, type SessionData, type WeekData } from '../hooks/view'
+import type { Breakdown, Limit, Recommend, Snapshot } from '../types'
+import { CAUSE_COLUMNS, HISTORY_COLUMNS, NOW_COLUMNS, SESSION_COLUMNS, TAB_LABELS, WEEK_COLUMNS, WHY_COLUMNS, bandCells as cellsOfBand, bandData, bandEls, barEls, cellTexts, helpEls, nowCells, nowEls, recommendEls, sessionCells, sessionEls, sparkEls, stripEls, svgBox, tableEls, tabsEls, weekData, weekEls, whyEls, type Els, type SessionData, type Spend, type WeekData } from '../hooks/view'
 import { HELP_SECTIONS } from './help-text'
 import { reqs } from './helpers'
 
@@ -53,40 +53,6 @@ function row(over: Partial<NowRow>): NowRow {
   return { key: 'run:a:1', isCurrent: false, repo: 'webshop', model: 'claude-fable-5-1', contextTokens: 412_000, lastMainRequestAt: T0, mainTtl: '1h', isWorking: false, last60: 6.1, today: 48.2, ...over }
 }
 
-test('the band line has the tube with 10 cells, the label, the limits and the models, and no ctx part', async () => {
-  const { main, totals } = oneRequest()
-  const data = bandData(main, totals, LIMITS, T0, T0 + 13 * MIN)
-  expect(data).not.toBeNull()
-  const cells = tubeCells(1 - 13 / 60, 10).map((c) => c.char).join('')
-  expect(Array.from(cells)).toHaveLength(10)
-  expect(flat(bandEls(E, data!))).toBe('▕' + cells + '▏ HOT 47m left · 411k cached · $8.22 to re-warm | week 41% · 5h 12% | fable-5-1 r400k w10.0k o1.0k')
-  expect(flat(bandEls(E, data!))).not.toContain('ctx')
-})
-
-test('the band keeps the ctx part when there is a context size but no tube', async () => {
-  const main = { ...NO_MAIN, contextTokens: 84_400 }
-  expect(flat(bandEls(E, bandData(main, {}, LIMITS, T0, T0)!))).toBe('week 41% · 5h 12% | ctx 84.4k')
-})
-
-const OPUS = { model: 'claude-opus-5-5', input_tokens: 3, output_tokens: 101_000, cache_read_input_tokens: 25_500_000, cache_creation_input_tokens: 833_000 }
-const SONNET = { model: 'claude-sonnet-5-5', input_tokens: 5, output_tokens: 55_300, cache_read_input_tokens: 8_100_000, cache_creation_input_tokens: 312_000 }
-const LIMITS_49 = [
-  { kind: 'seven_day', percentUsed: 49 },
-  { kind: 'five_hour', percentUsed: 8 },
-]
-const OPUS_TEXT = 'opus-5-5 r25.5M w833k o101k'
-const LIMITS_TEXT = 'week 49% · 5h 8%'
-const AGE_TEXT = '(2h ago)'
-
-// A conversation with one to three models: opus has the highest cost, then sonnet, then fable. The turn is live, and the context holds 296k
-function bandCase(modelCount: number, isOld: boolean = false) {
-  let totals = addTo({}, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
-  if (modelCount > 1) totals = addTo(totals, 'claude-sonnet-5-5', 'main', countsOf(SONNET, 0.5))
-  if (modelCount > 2) totals = addTo(totals, 'claude-fable-5-1', 'main', countsOf(FABLE, 0.1))
-  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2, '1h', '1h'), isWorking: true }
-  return bandData(main, totals, LIMITS_49, isOld ? T0 - 120 * MIN : T0, T0)!
-}
-
 // The text after the tube. The terminal tube is the frame and 10 cells in the text; the desktop tube is an Svg
 function afterTube(tree: unknown, surface: string): string {
   return flat(tree).slice(surface === 'terminal' ? 12 : 0).trim()
@@ -98,336 +64,156 @@ function bandCells(tree: unknown, surface: string): number {
   return surface === 'desktop' ? cellsOfBand(flat(tree), true, true) : Array.from(flat(tree)).length
 }
 
-test('the band shows only the model with the highest cost, and a dimmed count of the others', async () => {
-  const sonnet = { model: 'claude-sonnet-5-5', input_tokens: 5, output_tokens: 300, cache_read_input_tokens: 20_000, cache_creation_input_tokens: 30_000 }
-  const opus = { model: 'claude-opus-5-5', input_tokens: 3, output_tokens: 1100, cache_read_input_tokens: 289_000, cache_creation_input_tokens: 43_100 }
-  let totals = addTo({}, 'claude-sonnet-5-5', 'main', countsOf(sonnet, 0.5))
-  totals = addTo(totals, 'claude-fable-5-1', 'main', countsOf(FABLE, 0.1))
-  totals = addTo(totals, 'claude-opus-5-5', 'main', countsOf(opus, 2.5))
-  const main = mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 332_000, 'start', 0.2, '1h', '1h')
-  const tree = bandEls(E, bandData(main, totals, [], null, T0 + 13 * MIN)!)
-  expect(flat(tree)).toContain('| opus-5-5 r289k w43.1k o1.1k +2 models')
-  expect(flat(tree)).not.toContain('sonnet')
-  expect(flat(tree)).not.toContain('fable')
-  const suffix = all(tree, 'Text').filter((t) => flat(t) === ' +2 models')
-  expect(suffix).toHaveLength(1)
-  expect(suffix[0].props.dimColor).toBe(true)
-  const only = { ...totals }
-  delete only['claude-fable-5-1']
-  const one = flat(bandEls(E, bandData(main, only, [], null, T0)!))
-  expect(one).toMatch(/opus-5-5 r289k w43.1k o1.1k \+1 model$/)
-  delete only['claude-sonnet-5-5']
-  expect(flat(bandEls(E, bandData(main, only, [], null, T0)!))).toMatch(/opus-5-5 r289k w43.1k o1.1k$/)
+// The band of a conversation of one model, with the last request at T0. 120k on Fable 5.1 costs $2.40 to write again with the 1-hour price
+function bandAt(now: number, over: { model?: string; context?: number; ttl?: '5m' | '1h' | null; isWorking?: boolean; limits?: Limit[]; spend?: Spend | null } = {}) {
+  const ttl = over.ttl === undefined ? '1h' : over.ttl
+  const main = { ...mainAfter(NO_MAIN, over.model ?? 'claude-fable-5-1', T0, over.context ?? 120_000, 'start', 0.2, ttl ?? '1h', ttl), isWorking: over.isWorking ?? false }
+  return bandData(main, over.limits ?? WEEK_LIMITS, T0, now, over.spend ?? null)!
+}
+
+// The week resets 3 days after T0, so it started 4 days before. 5h resets 4 hours after T0, so it started 1 hour before
+const WEEK_RESET = T0 + 3 * 24 * 60 * MIN
+const FIVE_RESET = T0 + 4 * 60 * MIN
+const weekLimit = (percentUsed: number): Limit => ({ kind: 'seven_day', percentUsed, resetsAt: new Date(WEEK_RESET).toISOString() })
+const fiveHourLimit = (percentUsed: number): Limit => ({ kind: 'five_hour', percentUsed, resetsAt: new Date(FIVE_RESET).toISOString() })
+// At 41% after 4 of 7 days the week lasts until its reset
+const WEEK_LIMITS = [weekLimit(41), fiveHourLimit(12)]
+// At 76% after 4 days it runs out 5.26 days into the week: before the reset
+const RUNS_OUT_AT = WEEK_RESET - 7 * 24 * 60 * MIN + (4 * 24 * 60 * MIN * 100) / 76
+
+const propsOf = (tree: unknown, value: string) => all(tree, 'Text').find((t) => flat(t) === value)?.props
+
+test('without an action the band shows the tube, the label with the re-warm price, the week that lasts until its reset and the 5-hour limit', async () => {
+  const data = bandAt(T0 + 13 * MIN)
+  const cells = tubeCells(1 - 13 / 60, 10).map((c) => c.char).join('')
+  const tree = bandEls(E, data)
+  expect(flat(tree)).toBe('▕' + cells + '▏ HOT 47m left · 120k cached · $2.40 to re-warm | week 41% · lasts until reset | 5h 12%')
+  expect(data.action).toBeNull()
+  expect(propsOf(tree, 'lasts until reset')?.dimColor).toBe(true)
+  expect(propsOf(tree, '41%')?.color).toBeUndefined()
+  // No model names and no token counts: they are in the pane
+  expect(flat(tree)).not.toMatch(/fable|r\d|\+\d model/)
 })
 
-test('the band names the model with the highest cost, not the model of the last request', async () => {
-  let totals = addTo({}, 'claude-fable-5-1', 'main', countsOf(FABLE, 3.1))
-  totals = addTo(totals, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
-  const data = bandData(NO_MAIN, totals, LIMITS_49, T0, T0)!
-  expect(data.models).toBe('fable-5-1 r400k w10.0k o1.0k')
-  expect(data.more).toBe('+1 model')
+test('send now shows in the last 10 minutes of a 1-hour cache whose re-warm costs $1 or more, and the price, the range and 5h leave', async () => {
+  const tree = bandEls(E, bandAt(T0 + 52 * MIN))
+  // The limits come with each response, so the reading is as old as the last request
+  expect(afterTube(tree, 'terminal')).toBe('COOLING 8m left · 120k cached | send now: after ' + clockTime(T0 + 60 * MIN) + ' the next message costs $2.40 | week 41% (52m ago)')
+  expect(propsOf(tree, 'send now')?.bold).toBe(true)
+  expect(propsOf(tree, ': after ' + clockTime(T0 + 60 * MIN) + ' the next message costs $2.40')?.dimColor).toBeUndefined()
+  // 11 minutes before the end: no action yet
+  expect(bandAt(T0 + 49 * MIN).action).toBeNull()
+  // A cheap re-warm (Haiku 5.5: 120k at 0.20 per million) and a 5-minute cache get no send now
+  expect(bandAt(T0 + 52 * MIN, { model: 'claude-haiku-5-5' }).action).toBeNull()
+  expect(bandAt(T0 + 3 * MIN, { ttl: '5m' }).action).toBeNull()
+  // A live turn gets no cache action
+  expect(bandAt(T0 + 52 * MIN, { isWorking: true }).action).toBeNull()
 })
 
-test('the band joins the limits with a dot, and a count of the other models reads +1 model and +2 models', async () => {
+test('/clear shows when the cache is cold and the re-warm costs $1 or more, and the cold label keeps its price', async () => {
+  expect(afterTube(bandEls(E, bandAt(T0 + 75 * MIN)), 'terminal')).toBe('COLD 15m · next message re-writes 120k ≈ $2.40 | /clear if the topic changed | week 41% (1h ago)')
+  // A 5-minute cache is cold after 5 minutes
+  expect(bandAt(T0 + 6 * MIN, { ttl: '5m' }).action?.verb).toBe('/clear')
+  // With an unknown cache life the band shows no cache action, also when the cache is cold for both lives
+  const unknown = bandAt(T0 + 75 * MIN, { ttl: null })
+  expect(unknown.stage).toBe('COLD')
+  expect(unknown.action).toBeNull()
+})
+
+test('/compact shows from 400k tokens with the price of reading them, and without a price for a model without one', async () => {
+  // 411k at the read price of Fable 5.1, 0.25 per million
+  expect(afterTube(bandEls(E, bandAt(T0 + 13 * MIN, { context: 411_002 })), 'terminal')).toBe('HOT 47m left · 411k cached | /compact: each message reads 411k ≈ $0.10 | week 41%')
+  expect(bandAt(T0 + 13 * MIN, { context: 399_999 }).action).toBeNull()
+  expect(bandAt(T0 + 13 * MIN, { context: 411_002, model: 'claude-mythos-1' }).action?.rest).toBe(': each message reads 411k')
+})
+
+test('slow down shows when the week runs out before its reset, with the next smaller model, and the range takes the heat colour', async () => {
+  const limits = [weekLimit(76), fiveHourLimit(12)]
+  const tree = bandEls(E, bandAt(T0 + 13 * MIN, { limits }))
+  expect(afterTube(tree, 'terminal')).toBe('HOT 47m left · 120k cached | slow down or use Sonnet | week 76% · runs out ' + dayTime(RUNS_OUT_AT))
+  expect(propsOf(tree, 'runs out ' + dayTime(RUNS_OUT_AT))?.color).toBe(heatText(0.9))
+  expect(bandAt(T0 + 13 * MIN, { limits, model: 'claude-sonnet-5-5' }).action?.rest).toBe(' or use Haiku')
+  expect(bandAt(T0 + 13 * MIN, { limits, model: 'claude-haiku-5-5' }).action?.rest).toBe('')
+})
+
+test('5h full shows when the 5-hour window fills within 60 minutes, with its percent first and in the heat colour', async () => {
+  // At 88% one hour into the window it reaches 100% 8.2 minutes after T0
+  const fullAt = FIVE_RESET - 5 * 60 * MIN + (60 * MIN * 100) / 88
+  const tree = bandEls(E, bandAt(T0 + 2 * MIN, { limits: [weekLimit(41), fiveHourLimit(88)] }))
+  expect(afterTube(tree, 'terminal')).toBe('HOT 58m left · 120k cached | 5h full at ' + clockTime(fullAt) + ': pause or use Sonnet | 5h 88% | week 41%')
+  expect(propsOf(tree, '88%')?.color).toBe(heatText(0.88))
+  // At 30% the window does not fill before its reset
+  expect(bandAt(T0 + 2 * MIN, { limits: [weekLimit(41), fiveHourLimit(30)] }).action).toBeNull()
+})
+
+test('week used up shows past the weekly limit, with the reset and the percent in the heat colour, before every other action', async () => {
+  const tree = bandEls(E, bandAt(T0 + 2 * MIN, { limits: [weekLimit(100), fiveHourLimit(88)], ttl: '5m', context: 411_002 }))
+  expect(afterTube(tree, 'terminal')).toBe('WARM 3m left · 411k cached | week used up: usage credits until ' + dayTime(WEEK_RESET) + ' | week 100%')
+  expect(propsOf(tree, '100%')?.color).toBe(heatText(1))
+})
+
+test('with an API key the band shows the spend of today and of the last hour in place of the limits', async () => {
+  // 120k at the 5-minute write price of Fable 5.1, 12.5 per million
+  const tree = bandEls(E, bandAt(T0 + MIN, { ttl: '5m', limits: [], spend: { today: 12.4, perHour: 4.1 } }))
+  expect(afterTube(tree, 'terminal')).toBe('HOT 4m left · 120k cached · $1.50 to re-warm | today $12.40 · $4.10/h')
+  expect(propsOf(tree, ' · $4.10/h')?.dimColor).toBe(true)
+  // A plan limit wins over the spend
+  expect(flat(bandEls(E, bandAt(T0 + 3 * MIN, { spend: { today: 12.4, perHour: 4.1 } })))).not.toContain('today')
+  // Nothing to show: no request, no limits, no spend
+  expect(bandData(NO_MAIN, [], null, T0, { today: 0, perHour: 0 })).toBeNull()
+  expect(flat(bandEls(E, bandData(NO_MAIN, [], null, T0, { today: 3, perHour: 0 })!))).toBe('today $3.00 · $0.00/h')
+})
+
+test('the band shows only the limits before the first request, a cold cache, a live turn and an old reading with its age', async () => {
+  expect(flat(bandEls(E, bandData(NO_MAIN, WEEK_LIMITS, T0, T0)!))).toBe('week 41% · lasts until reset | 5h 12%')
+  expect(bandData(NO_MAIN, [], null, T0)).toBeNull()
+  expect(afterTube(bandEls(E, bandAt(T0 + 13 * MIN, { isWorking: true })), 'terminal')).toBe('LIVE in turn · 120k cached | week 41% · lasts until reset | 5h 12%')
+  const old = bandData({ ...NO_MAIN }, WEEK_LIMITS, T0 - 120 * MIN, T0)!
+  expect(flat(bandEls(E, old))).toContain('5h 12% (2h ago)')
+})
+
+// Bands of every kind, for the width checks
+const BAND_STATES = () => [bandAt(T0 + 13 * MIN), bandAt(T0 + 52 * MIN), bandAt(T0 + 75 * MIN), bandAt(T0 + 13 * MIN, { limits: [weekLimit(76), fiveHourLimit(12)] }), bandAt(T0 + 2 * MIN, { limits: [weekLimit(41), fiveHourLimit(88)] }), bandAt(T0 + 13 * MIN, { context: 640_000 }), bandAt(T0 + 3 * MIN, { ttl: '5m', limits: [], spend: { today: 12.4, perHour: 4.1 } }), bandAt(T0 + 13 * MIN, { ttl: null })]
+
+test('the band is never wider than the available cells less a margin of 4, and it keeps the stage, the lead and the action, on both surfaces', async () => {
   for (const surface of SURFACES) {
-    const one = afterTube(bandEls(E, bandCase(1), surface), surface)
-    const two = afterTube(bandEls(E, bandCase(2), surface), surface)
-    const three = afterTube(bandEls(E, bandCase(3), surface), surface)
-    expect(one, surface).toBe('LIVE in turn · 296k cached | ' + LIMITS_TEXT + ' | ' + OPUS_TEXT)
-    expect(two, surface).toBe(one + ' +1 model')
-    expect(three, surface).toBe(one + ' +2 models')
-    expect(afterTube(bandEls(E, bandCase(2, true), surface), surface)).toContain(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ' + OPUS_TEXT + ' +1 model')
-  }
-  expect(bandCase(1).more).toBe('')
-  expect(bandCase(1, true).limitsAge).toBe(AGE_TEXT)
-  expect(bandCase(1).limitsAge).toBe('')
-  // The age belongs to the limits: no limits, no age
-  const withModel = addTo({}, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
-  expect(bandData(NO_MAIN, withModel, [], T0 - 120 * MIN, T0)!.limitsAge).toBe('')
-})
-
-// The parts of the band in the order that they stay: the limits, the age, the model and the count of the others
-const BAND_WIDTHS = [60, 80, 100, 120, 160, undefined]
-const shownParts = (text: string) => ({
-  limits: text.includes(LIMITS_TEXT),
-  age: text.includes(AGE_TEXT),
-  models: text.includes(OPUS_TEXT),
-  more: /\+\d models?$/.test(text),
-})
-
-test('the band is never wider than the available cells less a margin of 4, and its parts leave from the right, on both surfaces', async () => {
-  for (const surface of SURFACES) {
-    for (const modelCount of [1, 2, 3]) {
-      for (const isOld of [false, true]) {
-        const data = bandCase(modelCount, isOld)
-        const where = surface + ', ' + modelCount + ' models, ' + (isOld ? 'old' : 'fresh') + ' limits'
-        let last = { limits: false, age: false, models: false, more: false }
-        for (const width of BAND_WIDTHS.filter((w) => w !== undefined).sort((a, b) => a! - b!)) {
-          const tree = bandEls(E, data, surface, width)
-          const text = afterTube(tree, surface)
-          const shown = shownParts(text)
-          // The tube, the stage word and the label alone take 39 cells: they fit in each width of the list
-          expect(bandCells(tree, surface), where + ' at ' + width).toBeLessThanOrEqual(width! - 4)
-          expect(text.startsWith('LIVE in turn · 296k cached'), where + ' at ' + width).toBe(true)
-          // The order: the count of the others goes first, then the model, then the age, then the limits
-          if (shown.more) expect(shown.models, where + ' at ' + width).toBe(true)
-          if (shown.models) expect(shown.limits, where + ' at ' + width).toBe(true)
-          if (shown.models && isOld) expect(shown.age, where + ' at ' + width).toBe(true)
-          if (shown.age) expect(shown.limits, where + ' at ' + width).toBe(true)
-          // A wider band keeps every part of a narrower band
-          for (const key of ['limits', 'age', 'models', 'more'] as const) if (last[key]) expect(shown[key], where + ' at ' + width + ' has lost ' + key).toBe(true)
-          last = shown
-        }
-        // Without a number, nothing leaves
-        const free = afterTube(bandEls(E, data, surface), surface)
-        expect(shownParts(free), where).toEqual({ limits: true, age: isOld, models: true, more: modelCount > 1 })
-        expect(afterTube(bandEls(E, data, surface, 160), surface), where).toBe(free)
-        expect(afterTube(bandEls(E, data, surface, Number.NaN), surface), where).toBe(free)
+    for (const data of BAND_STATES()) {
+      const isTube = data.fraction !== null
+      const cellsOf = (tree: unknown) => (surface === 'desktop' ? cellsOfBand(flat(tree), isTube, true) : Array.from(flat(tree)).length)
+      // The narrowest band: only the parts that never leave
+      const minimal = flat(bandEls(E, data, surface, 1))
+      for (const width of [60, 70, 80, 100, 120, 140, 160]) {
+        const tree = bandEls(E, data, surface, width)
+        for (const part of [data.stage ?? '', data.lead, data.action?.verb ?? '']) expect(flat(tree), surface + ' ' + width).toContain(part)
+        // Wider than the budget only when nothing else can leave
+        if (cellsOf(tree) > width - 4) expect(flat(tree), surface + ' ' + width).toBe(minimal)
       }
     }
   }
 })
 
-test('the band leaves out the parts at the widths 60, 80, 100, 120 and 160, with the cells of each surface', async () => {
-  const base = 'LIVE in turn · 296k cached'
-  const limits = base + ' | ' + LIMITS_TEXT
-  const aged = limits + ' ' + AGE_TEXT
-  const withModel = (text: string) => text + ' | ' + OPUS_TEXT
-  // [surface, model count, old limits, width, the text after the tube]. The desktop text is proportional and narrower than one cell a character,
-  // so at 60, 80 and 100 the desktop keeps parts that the terminal drops
-  const cases: [string, number, boolean, number, string][] = [
-    ['terminal', 2, false, 60, base],
-    ['terminal', 2, false, 80, limits],
-    ['terminal', 2, false, 100, withModel(limits)],
-    ['terminal', 2, false, 120, withModel(limits) + ' +1 model'],
-    ['terminal', 2, false, 160, withModel(limits) + ' +1 model'],
-    ['desktop', 2, false, 60, limits],
-    ['desktop', 2, false, 80, withModel(limits)],
-    ['desktop', 2, false, 100, withModel(limits) + ' +1 model'],
-    ['desktop', 2, false, 120, withModel(limits) + ' +1 model'],
-    ['terminal', 3, false, 100, withModel(limits)],
-    ['desktop', 3, false, 100, withModel(limits) + ' +2 models'],
-    ['terminal', 3, false, 120, withModel(limits) + ' +2 models'],
-    ['terminal', 2, true, 60, base],
-    ['terminal', 2, true, 80, aged],
-    ['terminal', 2, true, 100, aged],
-    ['terminal', 2, true, 120, withModel(aged) + ' +1 model'],
-    ['desktop', 2, true, 60, aged],
-    ['desktop', 2, true, 80, aged],
-    ['desktop', 2, true, 100, withModel(aged) + ' +1 model'],
-    ['desktop', 3, true, 100, withModel(aged) + ' +2 models'],
-    ['desktop', 2, true, 120, withModel(aged) + ' +1 model'],
-  ]
-  for (const [surface, modelCount, isOld, width, expected] of cases) {
-    expect(afterTube(bandEls(E, bandCase(modelCount, isOld), surface, width), surface), surface + ', ' + modelCount + ' models, ' + (isOld ? 'old' : 'fresh') + ' limits, ' + width + ' columns').toBe(expected)
-  }
-})
-
-test('bandCells counts one cell for each character and a tube of 12 on the terminal, and the proportional widths and a tube of 12 on the desktop', async () => {
-  expect(cellsOfBand('week 49%', true, false)).toBe(20)
-  expect(cellsOfBand('week 49%', false, false)).toBe(8)
-  // In hundredths of a cell, so that float rounding does not count. The desktop counts the text 4% wider than desktopCells: 8.03 times 1.04
-  expect(Math.round(cellsOfBand('week 49%', true, true) * 100)).toBe(2035)
-  expect(Math.round(cellsOfBand('week 49%', false, true) * 100)).toBe(835)
-  expect(cellsOfBand('', true, true)).toBe(12)
-})
-
-test('the band keeps the tube, the stage word and the label when they alone are wider than the budget', async () => {
-  const { main, totals } = oneRequest()
-  const data = bandData(main, totals, LIMITS_49, T0 - 120 * MIN, T0 + 44 * MIN)!
-  expect(data.stage).toBe('COOLING')
-  // The tube, the stage word and the label take 62 cells on the terminal and 52.39 on the desktop
-  const widths: Record<string, number[]> = { terminal: [20, 50, 60], desktop: [20, 40, 50] }
-  for (const surface of SURFACES) {
-    for (const width of widths[surface]) {
-      const tree = bandEls(E, data, surface, width)
-      const text = afterTube(tree, surface)
-      expect(text, surface + ' at ' + width).toBe('COOLING 16m left · 411k cached · $8.22 to re-warm')
-      expect(bandCells(tree, surface)).toBeGreaterThan(width - 4)
-      // The terminal cuts the label at the end, as before
-      const line = all(tree, 'Text').find((t) => t.props.wrap === 'truncate-end')
-      expect(line).toBeDefined()
-    }
-    // With room the other parts come back
-    expect(afterTube(bandEls(E, data, surface, 160), surface)).toContain(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ' + 'fable-5-1 r400k w10.0k o1.0k')
-  }
-})
-
-test('the band without a tube leaves out the models, the context size, the age and then the limits, and keeps the last text', async () => {
-  const main = { ...NO_MAIN, contextTokens: 84_400 }
-  let totals = addTo({}, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
-  totals = addTo(totals, 'claude-sonnet-5-5', 'main', countsOf(SONNET, 0.5))
-  const data = bandData(main, totals, LIMITS_49, T0 - 120 * MIN, T0)!
-  expect(data.fraction).toBeNull()
-  const full = LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k | ' + OPUS_TEXT + ' +1 model'
-  // On the desktop the same line is 61.79 cells, without the count 54.42, without the models 30.02, without the context size 21.41 and without the age 14.44
-  const desktopAt = (width?: number) => flat(bandEls(E, data, 'desktop', width))
-  expect(desktopAt(66)).toBe(full)
-  expect(desktopAt(65)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k | ' + OPUS_TEXT)
-  expect(desktopAt(59)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k | ' + OPUS_TEXT)
-  expect(desktopAt(58)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k')
-  expect(desktopAt(35)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k')
-  expect(desktopAt(34)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT)
-  expect(desktopAt(26)).toBe(LIMITS_TEXT + ' ' + AGE_TEXT)
-  expect(desktopAt(25)).toBe(LIMITS_TEXT)
-  expect(desktopAt(6)).toBe(LIMITS_TEXT)
-  for (const surface of ['terminal']) {
-    const at = (width?: number) => flat(bandEls(E, data, surface, width))
-    // The full line is 76 cells, the line without the count 67, without the models 37, without the context size 25 and without the age 16
-    expect(at(), surface).toBe(full)
-    expect(at(80), surface).toBe(full)
-    expect(at(79), surface).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k | ' + OPUS_TEXT)
-    expect(at(71), surface).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k | ' + OPUS_TEXT)
-    expect(at(70), surface).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k')
-    expect(at(41), surface).toBe(LIMITS_TEXT + ' ' + AGE_TEXT + ' | ctx 84.4k')
-    expect(at(40), surface).toBe(LIMITS_TEXT + ' ' + AGE_TEXT)
-    expect(at(29), surface).toBe(LIMITS_TEXT + ' ' + AGE_TEXT)
-    expect(at(28), surface).toBe(LIMITS_TEXT)
-    expect(at(20), surface).toBe(LIMITS_TEXT)
-    // Nothing is left to leave out: the line is never empty
-    expect(at(19), surface).toBe(LIMITS_TEXT)
-    expect(at(6), surface).toBe(LIMITS_TEXT)
-  }
-  // Without limits, the last text is the model
-  const onlyModels = bandData(NO_MAIN, totals, [], null, T0)!
-  expect(flat(bandEls(E, onlyModels, 'terminal', 10))).toBe(OPUS_TEXT)
-})
-
-// Limits with a reset time, read at T0. The week is at 49% after 72 of its 168 hours, the 5-hour window at 62% after 2 of its 5 hours.
-// Both reach 100% before their reset: the 5-hour window 73.5 minutes after the reading
-const HOUR_MS = 60 * MIN
-const WEEK_LIMIT = { kind: 'seven_day', percentUsed: 49, resetsAt: new Date(T0 + 96 * HOUR_MS).toISOString() }
-const FIVE_LIMIT = { kind: 'five_hour', percentUsed: 62, resetsAt: new Date(T0 + 3 * HOUR_MS).toISOString() }
-const PROJECTED_LIMITS = [WEEK_LIMIT, FIVE_LIMIT]
-const WEEK_FULL = ' → 100% ' + dayTime(T0 - 72 * HOUR_MS + (72 * HOUR_MS * 100) / 49)
-const FIVE_FULL = ' → 100% ' + dayTime(T0 - 2 * HOUR_MS + (2 * HOUR_MS * 100) / 62)
-const LIVE_TEXT = 'LIVE in turn · 296k cached'
-
-// The live conversation of bandCase with two models, and the limits read at limitsAt
-function projectedCase(limitsAt: number, now: number) {
-  let totals = addTo({}, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
-  totals = addTo(totals, 'claude-sonnet-5-5', 'main', countsOf(SONNET, 0.5))
-  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2, '1h', '1h'), isWorking: true }
-  return bandData(main, totals, PROJECTED_LIMITS, limitsAt, now)!
-}
-
-test('the band shows the day and the time when each limit reaches 100%, after its percent, on both surfaces', async () => {
-  const limits = 'week 49%' + WEEK_FULL + ' · 5h 62%' + FIVE_FULL
-  expect(WEEK_FULL).toMatch(/^ → 100% (Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d\d:\d\d$/)
-  expect(FIVE_FULL).toMatch(/^ → 100% (Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d\d:\d\d$/)
-  for (const surface of SURFACES) {
-    const tree = bandEls(E, projectedCase(T0, T0), surface)
-    expect(afterTube(tree, surface), surface).toBe(LIVE_TEXT + ' | ' + limits + ' | ' + OPUS_TEXT + ' +1 model')
-    // The limits and their projections are one plain Text
-    const text = all(tree, 'Text').find((t) => flat(t) === limits)
-    expect(text, surface).toBeDefined()
-    expect(Object.keys(text!.props), surface).toEqual(['children'])
-  }
-})
-
-test('the band shows no projection for a limit that does not reach 100% before its reset, or that has no reset time', async () => {
-  const main = { ...mainAfter(NO_MAIN, 'claude-opus-5-5', T0, 296_000, 'start', 0.2, '1h', '1h'), isWorking: true }
-  const totals = addTo({}, 'claude-opus-5-5', 'main', countsOf(OPUS, 2.5))
-  const slow = [
-    { ...WEEK_LIMIT, percentUsed: 30 },
-    { ...FIVE_LIMIT, percentUsed: 31 },
-  ]
-  expect(afterTube(bandEls(E, bandData(main, totals, slow, T0, T0)!), 'terminal')).toBe(LIVE_TEXT + ' | week 30% · 5h 31% | ' + OPUS_TEXT)
-  // Only the weekly limit reaches 100%
-  const onlyWeek = [WEEK_LIMIT, { ...FIVE_LIMIT, percentUsed: 31 }]
-  expect(afterTube(bandEls(E, bandData(main, totals, onlyWeek, T0, T0)!), 'terminal')).toBe(LIVE_TEXT + ' | week 49%' + WEEK_FULL + ' · 5h 31% | ' + OPUS_TEXT)
-  // No reset time, and the spend limit has no window
-  const noReset = [{ kind: 'seven_day', percentUsed: 49 }, { kind: 'five_hour', percentUsed: 62 }, { kind: 'spend_limit', percentUsed: 90, resetsAt: FIVE_LIMIT.resetsAt }]
-  expect(afterTube(bandEls(E, bandData(main, totals, noReset, T0, T0)!), 'terminal')).toBe(LIVE_TEXT + ' | week 49% · 5h 62% · spend 90% | ' + OPUS_TEXT)
-})
-
-test('the band leaves out the models, then the 5-hour projection, then the weekly projection, then the limits, on both surfaces', async () => {
-  const both = 'week 49%' + WEEK_FULL + ' · 5h 62%' + FIVE_FULL
-  const weekOnly = 'week 49%' + WEEK_FULL + ' · 5h 62%'
-  const plain = 'week 49% · 5h 62%'
-  const withModel = (limits: string) => LIVE_TEXT + ' | ' + limits + ' | ' + OPUS_TEXT
-  // The line with both projections is 93 cells on the terminal, the model adds 30 and the count 9.
-  // On the desktop the line is 76.73 cells, with the model 101.13 and with the count 108.49, so the same parts stay at smaller widths
-  const cases: Record<string, [number, string][]> = {
-    terminal: [
-      [140, withModel(both) + ' +1 model'],
-      [130, withModel(both)],
-      [110, LIVE_TEXT + ' | ' + both],
-      [90, LIVE_TEXT + ' | ' + weekOnly],
-      [70, LIVE_TEXT + ' | ' + plain],
-      [60, LIVE_TEXT],
-    ],
-    desktop: [
-      [140, withModel(both) + ' +1 model'],
-      [110, withModel(both)],
-      [90, LIVE_TEXT + ' | ' + both],
-      [70, LIVE_TEXT + ' | ' + weekOnly],
-      [60, LIVE_TEXT + ' | ' + plain],
-      [50, LIVE_TEXT],
-    ],
-  }
-  for (const surface of SURFACES) {
-    for (const [width, expected] of cases[surface]) {
-      const tree = bandEls(E, projectedCase(T0, T0), surface, width)
-      expect(afterTube(tree, surface), surface + ' at ' + width).toBe(expected)
-      expect(bandCells(tree, surface), surface + ' at ' + width).toBeLessThanOrEqual(width - 4)
-    }
-    // At every width the band keeps one line, and a wider band keeps every part of a narrower one
-    let last = ''
-    for (let width = 40; width <= 150; width++) {
-      const tree = bandEls(E, projectedCase(T0, T0), surface, width)
-      const text = afterTube(tree, surface)
-      // A band with more than the tube and its label fits its width
-      if (text !== LIVE_TEXT) expect(bandCells(tree, surface), surface + ' at ' + width).toBeLessThanOrEqual(width - 4)
-      if (text.includes(FIVE_FULL)) expect(text, surface + ' at ' + width).toContain(WEEK_FULL)
-      if (text.includes(OPUS_TEXT)) expect(text, surface + ' at ' + width).toContain(both)
-      expect(text.length, surface + ' at ' + width).toBeGreaterThanOrEqual(last.length)
-      last = text
-    }
-  }
-})
-
-test('the band takes the pace up to the time of the reading, shows its age, and hides a projection whose time has passed', async () => {
-  const both = 'week 49%' + WEEK_FULL + ' · 5h 62%' + FIVE_FULL
-  for (const surface of SURFACES) {
-    // 70 minutes after the reading: the age shows, and the times are those of the reading. The 5-hour limit reaches 100% after 73.5 minutes
-    expect(afterTube(bandEls(E, projectedCase(T0, T0 + 70 * MIN), surface), surface)).toBe(LIVE_TEXT + ' | ' + both + ' (1h ago) | ' + OPUS_TEXT + ' +1 model')
-    // 80 minutes after the reading the 5-hour time has passed: only the weekly projection stays, with the time of the reading
-    expect(afterTube(bandEls(E, projectedCase(T0, T0 + 80 * MIN), surface), surface)).toBe(LIVE_TEXT + ' | week 49%' + WEEK_FULL + ' · 5h 62% (1h ago) | ' + OPUS_TEXT + ' +1 model')
-    // The age leaves before the projections: the line with the age is 102 cells on the terminal and 83.35 on the desktop
-    expect(afterTube(bandEls(E, projectedCase(T0, T0 + 70 * MIN), surface, surface === 'terminal' ? 100 : 84), surface)).toBe(LIVE_TEXT + ' | ' + both)
-  }
-  // With the time of a reading both limits have a projection, without it neither has one
-  expect(projectedCase(T0, T0).limits.map((l) => l.projection)).toEqual([WEEK_FULL, FIVE_FULL])
-  expect(bandData(NO_MAIN, {}, PROJECTED_LIMITS, null, T0)!.limits.map((l) => l.projection)).toEqual(['', ''])
+test('a narrow band leaves out the parts in the drop order, and keeps a range that runs out', async () => {
+  const data = bandAt(T0 + 13 * MIN, { limits: [weekLimit(76), fiveHourLimit(12)] })
+  const runsOut = 'runs out ' + dayTime(RUNS_OUT_AT)
+  const wide = afterTube(bandEls(E, data, 'terminal', 200), 'terminal')
+  expect(wide).toBe('HOT 47m left · 120k cached | slow down or use Sonnet | week 76% · ' + runsOut)
+  // The context leaves before the week percent, and the range that runs out stays
+  const width = 12 + Array.from(' HOT 47m left | slow down or use Sonnet | ' + runsOut).length + 4
+  expect(afterTube(bandEls(E, data, 'terminal', width), 'terminal')).toBe('HOT 47m left | slow down or use Sonnet | ' + runsOut)
+  // Without an action: the range that lasts and the 5-hour limit leave before the price and the context
+  const calm = bandAt(T0 + 13 * MIN)
+  const narrow = afterTube(bandEls(E, calm, 'terminal', 12 + Array.from(' HOT 47m left · 120k cached · $2.40 to re-warm | week 41%').length + 4), 'terminal')
+  expect(narrow).toBe('HOT 47m left · 120k cached · $2.40 to re-warm | week 41%')
 })
 
 test('the band colours the stage word with the text colour of heat and the tube cells with the heat colour', async () => {
-  const { main, totals } = oneRequest()
-  const tree = bandEls(E, bandData(main, totals, LIMITS, T0, T0 + 13 * MIN)!)
+  const tree = bandEls(E, bandAt(T0 + 13 * MIN))
   const texts = all(tree, 'Text')
   const stage = texts.find((t) => flat(t) === 'HOT')
   expect(stage?.props.color).toBe(heatText(1 - 13 / 60))
   expect(stage?.props.bold).toBe(true)
   expect(texts.filter((t) => flat(t) === '░').every((t) => t.props.dimColor === true)).toBe(true)
   expect((tree as Node).props.wrap).toBe('truncate-end')
-})
-
-test('the band shows only the limits before the first request, and nothing without limits', async () => {
-  expect(flat(bandEls(E, bandData(NO_MAIN, {}, LIMITS, T0, T0)!))).toBe('week 41% · 5h 12%')
-  expect(bandData(NO_MAIN, {}, [], null, T0)).toBeNull()
-})
-
-test('the band shows a cold cache and a live turn', async () => {
-  const { main, totals } = oneRequest()
-  expect(flat(bandEls(E, bandData(main, totals, [], null, T0 + 75 * MIN)!))).toContain('COLD 15m · next message re-writes 411k ≈ $8.22')
-  expect(flat(bandEls(E, bandData({ ...main, isWorking: true }, totals, [], null, T0 + 75 * MIN)!))).toContain('LIVE in turn · 411k cached')
-})
-
-test('the band shows the tokens of an unpriced model', async () => {
-  const totals = addTo({}, 'unknown-model', 'main', countsOf({ ...FABLE, model: 'unknown-model' }, 0))
-  const main = mainAfter(NO_MAIN, 'unknown-model', T0, 411_002, 'start', 0, '1h', '1h')
-  expect(flat(bandEls(E, bandData(main, totals, [], null, T0 + 13 * MIN)!))).toContain('47m left · 411k cached | unknown-model r400k w10.0k o1.0k')
 })
 
 test('every row of the Now table has the same width and the same column starts', async () => {
@@ -865,7 +651,8 @@ test('the Week tab has the head grid, the repo table and the model table with a 
   expect(parts.map((p) => p.type)).toEqual(['Box', 'Text', 'Box', 'Text', 'Box'])
   expect([flat(parts[1]), flat(parts[3])]).toEqual([' ', ' '])
   expect([0, 1, 2].map((i) => tablesOf(tree)[i])).toEqual([parts[0], parts[2], parts[4]])
-  expect(tableRows(parts[0] as Node)).toHaveLength(5)
+  // The week, the reset, the projection, the history, the day axis and the cost at API prices
+  expect(tableRows(parts[0] as Node)).toHaveLength(6)
   expect(tableRows(parts[2] as Node)).toHaveLength(3)
   expect(tableRows(parts[4] as Node)).toHaveLength(3)
 })
@@ -890,14 +677,14 @@ test('the Week head grid shows the week, the reset, the projection, the history 
 test('the Week head grid shows the history row only when a period has a reading', async () => {
   const labels = (history: HistoryCell[]) => tableRows(tablesOf(weekEls(E, { ...WEEK, history }))[0]).map((r) => flat(r).slice(0, 12).trim())
   // The axis row has no label
-  expect(labels(WEEK.history)).toEqual(['week', 'resets', 'at the curre', 'week used, o', ''])
+  expect(labels(WEEK.history)).toEqual(['week', 'resets', 'at the curre', 'week used, o', '', 'at API price'])
   // A week without a reading has past empty cells and future cells, and no history row
   const none = [...Array(5).fill(PAST_EMPTY), ...Array(9).fill(FUTURE)]
-  expect(labels(none)).toEqual(['week', 'resets', 'at the curre'])
-  expect(labels([])).toEqual(['week', 'resets', 'at the curre'])
-  expect(labels(Array(14).fill(FUTURE))).toEqual(['week', 'resets', 'at the curre'])
+  expect(labels(none)).toEqual(['week', 'resets', 'at the curre', 'at API price'])
+  expect(labels([])).toEqual(['week', 'resets', 'at the curre', 'at API price'])
+  expect(labels(Array(14).fill(FUTURE))).toEqual(['week', 'resets', 'at the curre', 'at API price'])
   // One reading is enough
-  expect(labels([...none.slice(0, 4), { char: '▁', percent: 5, isFuture: false }, ...none.slice(5)])).toHaveLength(5)
+  expect(labels([...none.slice(0, 4), { char: '▁', percent: 5, isFuture: false }, ...none.slice(5)])).toHaveLength(6)
   // On the desktop the meter is the only Svg of the head grid, and on both surfaces no text names the history or the days
   const head = (surface: string) => tablesOf(weekEls(E, { ...WEEK, history: none }, undefined, surface))[0]
   expect(all(head('desktop'), 'Svg').map((v) => v.props.alt)).toEqual(['week 41% used'])
@@ -1012,15 +799,17 @@ test('weekData passes the start of the week to the view, so that the day axis st
 })
 
 test('the Week head grid shows n/a in a dimmed row without a percent, and leaves out empty rows', async () => {
-  const head = tablesOf(weekEls(E, { ...WEEK, percent: null, resetAt: null, projection: '', history: [] }))[0]
+  const head = tablesOf(weekEls(E, { ...WEEK, percent: null, resetAt: null, projection: '', history: [], total: 0 }))[0]
   expect(tableRows(head)).toHaveLength(1)
   expect(flat(tableRows(head)[0])).toBe('week'.padEnd(26) + 'n/a'.padEnd(21) + ' '.repeat(16))
   expect([0, 1].map((ci) => styleOf(head, 0, ci))).toEqual([{ dimColor: true }, { dimColor: true }])
-  const noReset = tablesOf(weekEls(E, { ...WEEK, resetAt: null, projection: '', history: [] }))[0]
+  const noReset = tablesOf(weekEls(E, { ...WEEK, resetAt: null, projection: '', history: [], total: 0 }))[0]
   expect(tableRows(noReset)).toHaveLength(1)
   expect(all(noReset, 'Text').some((t) => flat(t).includes('resets'))).toBe(false)
   const both = tablesOf(weekEls(E, { ...WEEK, percent: null }))[0]
-  expect(tableRows(both).map((r) => flat(r).slice(0, 12).trim())).toEqual(['week', 'resets', 'at the curre', 'week used, o', ''])
+  expect(tableRows(both).map((r) => flat(r).slice(0, 12).trim())).toEqual(['week', 'resets', 'at the curre', 'week used, o', '', 'at API price'])
+  // The cost at API prices: the last row, with the cost of the week
+  expect(flat(tableRows(both)[5])).toBe('at API prices'.padEnd(26) + '$849.00'.padEnd(21) + ' '.repeat(16))
   expect(flat(weekEls(E, { ...WEEK, percent: null, resetAt: null, projection: '', history: [], byRepo: [], byModelScope: [], total: 0 }))).toContain('week')
 })
 
@@ -1091,7 +880,8 @@ test('no amount up to $9,999.99 is cut in any money cell of the four tabs', asyn
   expect(count(session)).toBe(6)
   expect(session).not.toContain('…')
   const week = flat(weekEls(E, { ...WEEK, byRepo: [{ name: 'webshop', cost: 9999.99 }], byModelScope: [{ name: 'fable-5-1 main', cost: 9999.99 }], total: 9999.99 }))
-  expect(count(week)).toBe(2)
+  // The two share rows and the cost at API prices in the head grid
+  expect(count(week)).toBe(3)
   expect(week).not.toContain('…')
 })
 
@@ -1119,8 +909,8 @@ test('on the terminal the Week tab holds no Svg and draws the bars and the histo
 test('the Week head grid drops the empty column first, and the share tables drop the bar column', async () => {
   const widths = (index: number, available?: number, surface = 'terminal') => tableRows(tablesOf(weekEls(E, WEEK, available, surface))[index]).map(widthsOf)
   expect(widths(0, 63)[0]).toEqual([26, 21, 10, 6])
-  // The head grid has 5 rows: the week, the reset, the projection, the history and the day axis
-  expect(widths(0, 62)).toEqual(Array(5).fill([26, 21, 6]))
+  // The head grid has 6 rows: the week, the reset, the projection, the history, the day axis and the cost at API prices
+  expect(widths(0, 62)).toEqual(Array(6).fill([26, 21, 6]))
   expect(widths(0, 53)[0]).toEqual([26, 21, 6])
   expect(widths(0, 10)[0]).toEqual([26, 21, 6])
   expect(widths(1, 63)[0]).toEqual([26, 21, 10, 6])
@@ -1365,31 +1155,25 @@ test('the Week model table shows ≈ after the name of an estimated row on both 
 })
 
 test('the band shows ≈ before the re-warm cost of a fallback price, and not for an exact price or a model without a price', async () => {
-  const at = (model: string, now: number, isWorking: boolean = false) => {
-    const main = { ...mainAfter(NO_MAIN, model, T0, 411_002, 'start', 0.2, '1h', '1h'), isWorking }
-    const totals = addTo({}, model, 'main', countsOf({ ...FABLE, model }, 3.11))
-    return bandData(main, totals, [], null, now)!
-  }
+  // 300k at the 1-hour write price of claude-opus-5-5 (8 USD per million tokens): below the /compact threshold, so the price shows
+  const at = (model: string, now: number, isWorking: boolean = false) => bandAt(now, { model, context: 300_000, isWorking, limits: [] })
   for (const surface of SURFACES) {
     const hot = (model: string) => afterTube(bandEls(E, at(model, T0 + 13 * MIN), surface), surface)
-    // 411,002 tokens at the 1-hour write price of claude-opus-5-5 (8 USD per million tokens)
-    expect(hot('claude-opus-5-6'), surface).toMatch(/^HOT 47m left · 411k cached · ≈ \$3\.29 to re-warm \| /)
-    expect(hot('claude-opus-4-9'), surface).toContain('· ≈ $3.29 to re-warm')
-    expect(hot('claude-opus-5-5'), surface).toMatch(/^HOT 47m left · 411k cached · \$3\.29 to re-warm \| /)
+    expect(hot('claude-opus-5-6'), surface).toBe('HOT 47m left · 300k cached · ≈ $2.40 to re-warm')
+    expect(hot('claude-opus-4-9'), surface).toContain('· ≈ $2.40 to re-warm')
+    expect(hot('claude-opus-5-5'), surface).toBe('HOT 47m left · 300k cached · $2.40 to re-warm')
     expect(hot('claude-opus-5-5[1m]'), surface).not.toContain('≈')
     expect(hot('claude-mythos-1'), surface).not.toContain('re-warm')
     expect(hot('claude-mythos-1'), surface).not.toContain('≈')
   }
-  expect(at('claude-opus-5-6', T0 + 13 * MIN).label).toBe('47m left · 411k cached · ≈ $3.29 to re-warm')
-  expect(at('claude-opus-5-5', T0 + 13 * MIN).label).toBe('47m left · 411k cached · $3.29 to re-warm')
+  const label = (d: { lead: string; context: string; price: string }) => d.lead + d.context + d.price
   // The COLD label has its own ≈ and does not get a second one
-  expect(at('claude-opus-5-6', T0 + 75 * MIN).label).toBe('15m · next message re-writes 411k ≈ $3.29')
-  expect(at('claude-opus-5-5', T0 + 75 * MIN).label).toBe('15m · next message re-writes 411k ≈ $3.29')
-  expect(at('claude-opus-5-6', T0 + 75 * MIN).label).not.toContain('≈ ≈')
+  expect(label(at('claude-opus-5-6', T0 + 75 * MIN))).toBe('15m · next message re-writes 300k ≈ $2.40')
+  expect(label(at('claude-opus-5-5', T0 + 75 * MIN))).toBe('15m · next message re-writes 300k ≈ $2.40')
+  expect(label(at('claude-opus-5-6', T0 + 75 * MIN))).not.toContain('≈ ≈')
   // A live turn shows no re-warm cost, so no mark
-  expect(at('claude-opus-5-6', T0 + 13 * MIN, true).label).toBe('in turn · 411k cached')
+  expect(label(at('claude-opus-5-6', T0 + 13 * MIN, true))).toBe('in turn · 300k cached')
 })
-
 test('a row without a model shows an empty model cell, not unknown', async () => {
   expect(nowCells(row({ model: '' }), T0)[2]).toBe('')
   expect(nowCells(row({}), T0)[2]).toBe('fable-5-1')
@@ -1400,9 +1184,7 @@ test('a row without a model shows an empty model cell, not unknown', async () =>
 })
 
 test('on the desktop the band draws one Svg for the tube, then the stage word and the label as Text', async () => {
-  const { main, totals } = oneRequest()
-  const data = bandData(main, totals, LIMITS, T0, T0 + 13 * MIN)!
-  const tree = bandEls(E, data, 'desktop')
+  const tree = bandEls(E, bandAt(T0 + 13 * MIN), 'desktop')
   const svgs = all(tree, 'Svg')
   expect(svgs).toHaveLength(1)
   expect(svgs[0].props.alt).toBe('cache 78% left')
@@ -1415,7 +1197,7 @@ test('on the desktop the band draws one Svg for the tube, then the stage word an
   const shrink = all(tree, 'Box').find((b) => b.props.flexShrink === 1)
   expect((shrink.props.children as Node[]).map((c) => [c.type, c.props.wrap])).toEqual([['Text', 'truncate-end']])
   expect(all(tree, 'Box').find((b) => b.props.flexShrink === 0)).toBeDefined()
-  expect(text).toBe(' HOT 47m left · 411k cached · $8.22 to re-warm | week 41% · 5h 12% | fable-5-1 r400k w10.0k o1.0k')
+  expect(text).toBe(' HOT 47m left · 120k cached · $2.40 to re-warm | week 41% · lasts until reset | 5h 12%')
   for (const ch of [BULB, '█', '░', '▕', '▏']) expect(text).not.toContain(ch)
   const stage = all(tree, 'Text').find((t) => flat(t) === 'HOT')
   expect(stage?.props.color).toBe(heatText(1 - 13 / 60))
@@ -1424,7 +1206,7 @@ test('on the desktop the band draws one Svg for the tube, then the stage word an
 
 test('on the terminal the band draws no Svg and keeps the text cells', async () => {
   const { main, totals } = oneRequest()
-  const data = bandData(main, totals, LIMITS, T0, T0 + 13 * MIN)!
+  const data = bandData(main, LIMITS, T0, T0 + 13 * MIN)!
   for (const tree of [bandEls(E, data), bandEls(E, data, 'terminal')]) {
     expect(all(tree, 'Svg')).toHaveLength(0)
     expect(flat(tree).startsWith('▕')).toBe(true)
@@ -1434,9 +1216,9 @@ test('on the terminal the band draws no Svg and keeps the text cells', async () 
 })
 
 test('on the desktop the band without a tube draws no Svg, and a surface without Svg keeps the text cells', async () => {
-  expect(all(bandEls(E, bandData(NO_MAIN, {}, LIMITS, T0, T0)!, 'desktop'), 'Svg')).toHaveLength(0)
+  expect(all(bandEls(E, bandData(NO_MAIN, LIMITS, T0, T0)!, 'desktop'), 'Svg')).toHaveLength(0)
   const { main, totals } = oneRequest()
-  const tree = bandEls(NO_SVG, bandData(main, totals, LIMITS, T0, T0 + 13 * MIN)!, 'desktop')
+  const tree = bandEls(NO_SVG, bandData(main, LIMITS, T0, T0 + 13 * MIN)!, 'desktop')
   expect(flat(tree).startsWith('▕')).toBe(true)
   expect(flat(tree)).not.toContain(BULB)
 })
@@ -1862,8 +1644,8 @@ test('the day axis keeps the columns of the head grid at 80, 62 and 45 columns o
       const tree = week.draw(E, available, surface)
       checkAligned(tree, surface === 'desktop' ? 'desktop' : 'terminal', where)
       const rows = tableRows(tablesOf(tree)[0])
-      // The week, the reset, the projection, the history and the axis. Only the empty cost column drops, so every row keeps its widths
-      expect(rows, where).toHaveLength(5)
+      // The week, the reset, the projection, the history, the axis and the cost at API prices. Only the empty cost column drops, so every row keeps its widths
+      expect(rows, where).toHaveLength(6)
       const widths = widthsOf(rows[0])
       expect(widths.slice(0, 2), where).toEqual([26, 21])
       for (const r of rows) expect(widthsOf(r), where).toEqual(widths)
@@ -1972,10 +1754,10 @@ test('tableEls puts the selection background on the row Box of a selected row an
 test('neither the band nor any tab has a bulb or a circle, on either surface', async () => {
   const { main, totals } = oneRequest()
   const bands = [
-    bandData(main, totals, LIMITS, T0, T0 + 13 * MIN)!,
-    bandData(main, totals, LIMITS, T0, T0 + 75 * MIN)!,
-    bandData({ ...main, isWorking: true }, totals, LIMITS, T0, T0 + 75 * MIN)!,
-    bandData(NO_MAIN, {}, LIMITS, T0, T0)!,
+    bandData(main, LIMITS, T0, T0 + 13 * MIN)!,
+    bandData(main, LIMITS, T0, T0 + 75 * MIN)!,
+    bandData({ ...main, isWorking: true }, LIMITS, T0, T0 + 75 * MIN)!,
+    bandData(NO_MAIN, LIMITS, T0, T0)!,
   ]
   const trees: [string, unknown][] = []
   for (const [i, d] of bands.entries()) {
@@ -2074,7 +1856,7 @@ test('stage words, percents and the resume mark use heatText, and block glyphs a
   const hot = 1 - 13 / 60
   for (const x of [hot, 0.6, 0.7]) expect(heatText(x)).not.toBe(heat(x))
   const { main, totals } = oneRequest()
-  const band = bandData(main, totals, LIMITS, T0, T0 + 13 * MIN)!
+  const band = bandData(main, LIMITS, T0, T0 + 13 * MIN)!
   const nowRows = [row({ isCurrent: true, lastMainRequestAt: T0 - 13 * MIN }), row({ key: 'run:b:1', lastMainRequestAt: T0 - 24 * MIN })]
   const week = { ...WEEK, percent: 70, history: [{ char: '▇', percent: 70, isFuture: false }], byRepo: [], byModelScope: [] }
   const why = { ...WHY, total: 700_000 }
@@ -2168,7 +1950,7 @@ test('the help tab has the sections, the terms and the explanations of the appro
 
 test('a term of the help tab is as long as a table column leaves, so that the explanation starts at one column', async () => {
   for (const [term] of HELP_ROWS) expect(Array.from(term).length, term).toBeLessThanOrEqual(21)
-  expect(HELP_ROWS).toHaveLength(40)
+  expect(HELP_ROWS).toHaveLength(49)
   expect(HELP_HEADINGS).toEqual(['Band above the prompt', '1 Now', '2 Session', '3 Week', '4 Why', 'Costs', '/token-watch'])
 })
 
@@ -2291,29 +2073,19 @@ test('the terms of the help tab are the labels that the band and the other tabs 
   const labels = {
     now: ['ctx', '60 min', 'today'],
     session: ['scope', 'req', 'input', 'c.write', 'c.read', 'estimate', 'reported', 'start', 'growth', 'resume', 'cache, last 4 h'],
-    week: ['week', 'resets', 'at the current rate', 'week used, over time', 'by repo', 'by model'],
+    week: ['week', 'resets', 'at the current rate', 'week used, over time', 'at API prices', 'by repo', 'by model'],
   }
   expect(terms('1 Now').slice(1).join(', ')).toBe(labels.now.join(', '))
   expect(terms('2 Session').slice(0, -1).join(', ')).toBe(labels.session.join(', '))
   expect(terms('3 Week').join(', ')).toBe(labels.week.join(', '))
   // The headings of the tabs are the numbers and the labels of the tab bar
   expect(HELP_HEADINGS.slice(1, 5)).toEqual(TAB_LABELS.slice(0, 4).map((label, i) => i + 1 + ' ' + label))
-  // The band: each term has the shape of a part of the band line. The stage words are the stages
-  let totals = addTo({}, 'claude-fable-5-1', 'main', countsOf(FABLE, 3.11))
-  totals = addTo(totals, 'claude-sonnet-5-5', 'main', countsOf(SONNET, 0.5))
-  const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2, '1h', '1h')
-  // The 5-hour window started 20 minutes before the reading: at 12%, it reaches 100% before its reset, and the week has no reset time
-  const projected = [
-    { kind: 'seven_day', percentUsed: 41 },
-    { kind: 'five_hour', percentUsed: 12, resetsAt: new Date(T0 + 280 * MIN).toISOString() },
-  ]
-  const band = shape(flat(bandEls(E, bandData(main, totals, projected, T0, T0 + 13 * MIN)!)))
+  // The band: each term has the shape of a part of one band line, of the states of the band. The stage words are the stages
+  const bands = [...BAND_STATES(), bandAt(T0 + 2 * MIN, { limits: [weekLimit(100), fiveHourLimit(88)], ttl: '5m', context: 411_002 })].map((d) => shape(flat(bandEls(E, d))))
   const bandTerms = terms('Band above the prompt').slice(6)
-  // The band draws the label of an unknown cache life in place of the tube, before the mod has read the life
-  const unknown = shape(flat(bandEls(E, bandData({ ...main, ttl: null }, totals, projected, T0, T0 + 13 * MIN)!)))
-  for (const term of bandTerms.slice(0, -2)) expect(term === UNKNOWN_LIFE ? unknown : band, term).toContain(shape(term))
+  for (const term of bandTerms.slice(0, -2)) expect(bands.some((b) => b.includes(shape(term))), term).toBe(true)
   // The last two terms are the buttons. The terminal draws the pane button as `[ label ]` and the plain hide button as its label
-  const [pane, hide] = all(bandEls(E, bandData(main, totals, projected, T0, T0 + 13 * MIN)!, 'terminal', 120, { isPaneOpen: false, onPane: () => {}, onHide: () => {} }), 'Button')
+  const [pane, hide] = all(bandEls(E, bandAt(T0 + 13 * MIN), 'terminal', 120, { isPaneOpen: false, onPane: () => {}, onHide: () => {} }), 'Button')
   expect(bandTerms.slice(-2)).toEqual(['[ ' + pane.props.label + ' ]', hide.props.label])
   expect(terms('Band above the prompt').slice(1, 6)).toEqual(HELP_STAGES.map(([stage]) => stage))
   // Tab 1: the header cells, and the selected row
@@ -2376,9 +2148,9 @@ test('a narrow dialog keeps the label column and gives the value at least 20 cel
 test('the band shows the label of an unknown cache life in place of the tube, and the Now row shows no cache for it', async () => {
   const totals = addTo({}, 'claude-fable-5-1', 'main', countsOf(FABLE, 3.11))
   const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2, '1h', null)
-  const d = bandData(main, totals, [], null, T0 + 13 * MIN)!
+  const d = bandData(main, [], null, T0 + 13 * MIN)!
   expect(d.fraction).toBeNull()
-  expect(d.label).toBe('cache life unknown · last request 13m ago')
+  expect(d.lead).toBe('cache life unknown · last request 13m ago')
   expect(flat(bandEls(E, d))).toContain('cache life unknown · last request 13m ago')
   expect(nowCells(row({ mainTtl: null, lastMainRequestAt: T0 - 13 * MIN }), T0)[0]).toBe('')
   expect(nowCells(row({ mainTtl: '5m', lastMainRequestAt: T0 - MIN }), T0)[0]).toMatch(/ 4m$/)
@@ -2387,17 +2159,24 @@ test('the band shows the label of an unknown cache life in place of the tube, an
 test('the band counts down a 5-minute cache life and prices the re-warm with the 5-minute write', async () => {
   const totals = addTo({}, 'claude-fable-5-1', 'main', countsOf(FABLE, 3.11))
   const main = mainAfter(NO_MAIN, 'claude-fable-5-1', T0, 411_002, 'start', 0.2, '5m', '5m')
-  const d = bandData(main, totals, [], null, T0 + 3 * MIN)!
+  const d = bandData(main, [], null, T0 + 3 * MIN)!
   expect(d.stage).toBe('WARM')
-  expect(d.label).toBe('2m left · 411k cached · $5.14 to re-warm')
+  expect(d.lead + d.context + d.price).toBe('2m left · 411k cached · $5.14 to re-warm')
 })
 
 test('a band with only the label of an unknown cache life still shows, without limits and without models', async () => {
   // A resume within 5 minutes with an API key: no limits, no totals yet, and both lives fit
   const main = { ...NO_MAIN, lastRequestAt: T0 - 2 * MIN, ttl: null, contextTokens: 380_000, model: 'claude-opus-5-5' }
-  const d = bandData(main, {}, [], null, T0)
+  const d = bandData(main, [], null, T0)
   expect(d).not.toBeNull()
   expect(flat(bandEls(E, d!))).toContain('cache life unknown · last request 2m ago')
   // Without a request the band stays away
-  expect(bandData(NO_MAIN, {}, [], null, T0)).toBeNull()
+  expect(bandData(NO_MAIN, [], null, T0)).toBeNull()
+})
+
+test('a limit at 100% stays in the band in the heat colour while an action shows', async () => {
+  // The 5-hour window is full, so it has no 5h action; the context of 640k gives /compact
+  const tree = bandEls(E, bandAt(T0 + 13 * MIN, { context: 640_000, limits: [weekLimit(41), fiveHourLimit(100)] }))
+  expect(afterTube(tree, 'terminal')).toBe('HOT 47m left · 640k cached | /compact: each message reads 640k ≈ $0.16 | week 41% | 5h 100%')
+  expect(propsOf(tree, '100%')?.color).toBe(heatText(1))
 })

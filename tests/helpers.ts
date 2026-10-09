@@ -54,7 +54,7 @@ export type Harness = {
 // Each failure is read at each call, so a test can turn it on after the start
 export type Failures = { sessionId?: boolean; agentList?: boolean }
 
-export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures; modelResult?: { deny: string } | { value: unknown } | (($: any) => Promise<{ deny: string } | { value: unknown }>); breakdown?: unknown; booking?: { main?: Booking; subagent?: Booking } } = {}): Harness {
+export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: boolean; denyOpen?: boolean; openResult?: { deny: string } | { value: unknown }; store?: Record<string, unknown>; sessionModel?: string; fail?: Failures; modelResult?: { deny: string } | { value: unknown } | (($: any) => Promise<{ deny: string } | { value: unknown }>); breakdown?: unknown; booking?: { main?: Booking; subagent?: Booking }; rateLimits?: unknown[] } = {}): Harness {
   const store = new Map<string, unknown>(Object.entries(options.store ?? {}))
   const opened: unknown[] = []
   const registered: unknown[] = []
@@ -89,7 +89,8 @@ export function harness(on: any, options: { paneShown?: boolean; failStoreSet?: 
   on('session.usage', (_$: unknown, e: { breakdown?: string } | undefined) => ({
     value: {
       context: { tokens: 0, window: 1_000_000, percent: 0, ...(e?.breakdown ? { breakdown: options.breakdown ?? BREAKDOWN } : {}) },
-      rateLimits: [
+      // An API key has no plan limits: the option rateLimits []
+      rateLimits: options.rateLimits ?? [
         { kind: 'seven_day', percentUsed: 41, resetsAt: RESETS_AT },
         { kind: 'five_hour', percentUsed: 12 },
       ],
