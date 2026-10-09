@@ -16,7 +16,6 @@ import {
   limitsAgeText,
   line,
   markedCell,
-  modelsText,
   placeMarks,
   projectionText,
   repoName,
@@ -26,6 +25,7 @@ import {
 } from '../hooks/format'
 
 import { unknownLabel } from '../hooks/format'
+import { clockTime, tubeParts } from '../hooks/format'
 const MIN = 60_000
 const HOUR = 60 * MIN
 
@@ -182,12 +182,6 @@ test('tubeLabel puts ≈ before the re-warm cost of a fallback price, and keeps 
   expect(tubeLabel('COLD', t0, t0 + 75 * MIN, 411_002, 8.22004, true, '1h')).toBe('15m · next message re-writes 411k ≈ $8.22')
   expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, null, true, '1h')).toBe('47m left · 411k cached')
   expect(tubeLabel('LIVE', t0, t0, 411_002, 8.22, true, '1h')).toBe('in turn · 411k cached')
-})
-
-test('modelsText shows cache read, cache write and output per model', async () => {
-  const counts = { input: 2, output: 1000, cacheRead: 400_000, cacheWrite: 10_000, requests: 1, cost: 1 }
-  expect(modelsText([{ model: 'claude-fable-5-1', counts }])).toBe('fable-5-1 r400k w10.0k o1.0k')
-  expect(modelsText([{ model: 'unknown-model', counts: { ...counts, cost: 0 } }])).toBe('unknown-model r400k w10.0k o1.0k')
 })
 
 test('dayTime and projectionText use local time', async () => {
@@ -476,4 +470,19 @@ test('tubeLabel counts down the cache life, and unknownLabel gives the time sinc
   // An unknown life counts the cold minutes from the end of the longest life
   expect(tubeLabel('COLD', t0, t0 + 75 * MIN, 411_002, 8.22, false, null)).toBe('15m · next message re-writes 411k ≈ $8.22')
   expect(unknownLabel(t0, t0 + 13 * MIN + 59_000)).toBe('cache life unknown · last request 13m ago')
+})
+
+test('clockTime gives the local time of day, and dayTime puts the day before it', async () => {
+  const t = new Date(2026, 9, 9, 7, 5).getTime()
+  expect(clockTime(t)).toBe('07:05')
+  expect(dayTime(t)).toBe('Fri 07:05')
+})
+
+test('tubeParts splits the label into the minutes, the context and the price, and tubeLabel joins them', async () => {
+  const t0 = Date.UTC(2026, 9, 6, 12, 0)
+  expect(tubeParts('HOT', t0, t0 + 13 * MIN, 411_002, 8.22, false, '1h')).toEqual({ lead: '47m left', context: ' · 411k cached', price: ' · $8.22 to re-warm' })
+  expect(tubeParts('COLD', t0, t0 + 75 * MIN, 411_002, 8.22, false, '1h')).toEqual({ lead: '15m', context: ' · next message re-writes 411k', price: ' ≈ $8.22' })
+  expect(tubeParts('LIVE', t0, t0, 411_002, 8.22, false, '1h')).toEqual({ lead: 'in turn', context: ' · 411k cached', price: '' })
+  expect(tubeParts('HOT', t0, t0 + MIN, 411_002, null, false, '5m')).toEqual({ lead: '4m left', context: ' · 411k cached', price: '' })
+  expect(tubeLabel('HOT', t0, t0 + 13 * MIN, 411_002, 8.22, true, '1h')).toBe('47m left · 411k cached · ≈ $8.22 to re-warm')
 })

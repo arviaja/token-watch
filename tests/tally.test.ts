@@ -31,6 +31,7 @@ import {
 
 import { requestsOf } from '../hooks/tally'
 import type { Main } from '../types'
+import { spendOf } from '../hooks/tally'
 const T0 = Date.UTC(2026, 9, 6, 12, 0, 0)
 const MIN = 60_000
 const FABLE = { model: 'claude-fable-5-1', input_tokens: 2, output_tokens: 1000, cache_read_input_tokens: 400_000, cache_creation_input_tokens: 10_000 }
@@ -313,4 +314,13 @@ test('a snapshot carries the cache life of the main conversation, and an older s
   expect(mainTtl).toBe('5m')
   expect(nowRows([parseSnapshot(old)!], '', T0)[0].mainTtl).toBeNull()
   expect(parseSnapshot({ ...snap, mainTtl: '2h' })).toBeNull()
+})
+
+test('spendOf adds the cost of today and of the last 60 minutes of every session', async () => {
+  const snap = (cost: number, at: number) => snapshotOf({ sessionId: 's' + cost, startedAt: T0, repo: 'webshop' }, NO_MAIN, [], addTo({}, hourKey(at), 'claude-fable-5-1|main', { ...EMPTY, requests: 1, cost }), T0)
+  // Two sessions in the current hour, and one of the day before
+  const spend = spendOf([snap(4, T0), snap(6, T0), snap(100, T0 - 30 * 60 * MIN)], T0 + 10 * MIN)
+  expect(spend.today).toBe(10)
+  expect(spend.perHour).toBe(10)
+  expect(spendOf([], T0)).toEqual({ today: 0, perHour: 0 })
 })

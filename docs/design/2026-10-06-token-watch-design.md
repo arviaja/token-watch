@@ -212,21 +212,48 @@ In the band on the desktop, a `Box` row holds a `Box` with the `Svg` (`flexShrin
 
 ## Band
 
-The band is one line above the prompt. It has the same content in the CLI and in the desktop app. The tube is text in the CLI and an SVG in the desktop app:
+The band is a dashboard: it shows only what helps a decision now. The pane is for review. The band supports three decisions: send now or later (the cache), continue, compact or clear (the context), keep the pace or slow down (the limits). It has the same content in the CLI and in the desktop app. The tube is text in the CLI and an SVG in the desktop app.
 
 ```text
-▕███████▊░░▏ HOT 47m left · 412k cached · $8.24 to re-warm | week 41% · 5h 12% | fable-5-1 r31M w1.2M o120k +1 model
+▕███████▊░░▏ HOT 47m left · 120k cached · $2.40 to re-warm | week 41% · lasts until reset | 5h 12%
+▕█▊░░░░░░░░▏ COOLING 8m left · 120k cached | send now: after 14:32 the next message costs $2.40 | week 41%
+▕░░░░░░░░░░▏ COLD 15m · next message re-writes 120k ≈ $2.40 | /clear if the topic changed | week 41%
+▕███████▊░░▏ HOT 47m left · 120k cached | slow down or use Sonnet | week 76% · runs out Fri 14:00
+▕█████████▊▏ HOT 58m left · 120k cached | 5h full at 12:08: pause or use Sonnet | 5h 88% | week 41%
+▕███████▊░░▏ HOT 47m left · 640k cached | /compact: each message reads 640k ≈ $0.16 | week 41%
+▕█████▊░░░░▏ WARM 3m left · 412k cached | week used up: usage credits until Sun 11:00 | week 100%
+▕███████▊░░▏ HOT 4m left · 120k cached · $1.50 to re-warm | today $12.40 · $4.10/h
+cache life unknown · last request 3m ago · 120k cached | week 41% · lasts until reset | 5h 12%
 ```
 
-- The parts are in this order: cache tube with its label, plan limits, context size, then the token totals of this session for one model (`r` cache read, `w` cache write, `o` output).
-- The band leaves out the context size (`ctx 412k`) while the tube is shown, because the tube label already gives it. Without a tube, the band shows `ctx` when the context size is known.
-- The band shows only the model with the highest weighted cost of this conversation. When the conversation used more models, a dimmed ` +1 model` or ` +N models` follows, where N is the number of the other models (`+1 model`, `+2 models`).
-- The limits are joined with ` · `, for example `week 41% · 5h 12%`.
-- When the last limit reading is older than 30 minutes, its age follows the limits, for example `week 41% (2h ago)`.
-- When a limit reaches 100% before its reset, its projection follows its percent (see Projection in the band).
+- The parts are in this order: the cache tube with its stage word and label, the action, then the limits, or the spend with an API key. A dimmed ` | ` separates them.
+- The label is the minutes (`47m left`, `15m`, `in turn`), the context (` · 120k cached`, or ` · next message re-writes 120k` when cold) and the re-warm price (` · $2.40 to re-warm`, or ` ≈ $2.40` when cold). `tubeParts` in `format.ts` gives the three parts. Before the mod knows the cache life, the label of an unknown life takes the place of the tube (see Cache life).
+- The action is one at a time, the verb in bold, the rest in the text colour (see Actions).
+- The limits: `week 41%` with its range, then `5h 12%` and the other limits. The range is `lasts until reset` (dimmed) or `runs out Fri 14:00` (in `heatText(0.9)`), see Range of the week. When the last limit reading is older than 30 minutes, its age follows the last limit, for example `5h 12% (2h ago)`.
+- The heat colour shows only on parts that run hot: `runs out Fri 14:00`, the 5-hour percent of the action `5h full`, and `week 100%` of the action `week used up`.
+- A session without plan limits (an API key) shows `today $12.40 · $4.10/h` in place of the limits: the cost of all sessions on this Mac since local midnight, and the weighted cost of the last 60 minutes, as the Now tab shows them per session (`spendOf` in `tally.ts`). The `· $4.10/h` part is dimmed.
+- Every cost is in dollars at API prices. On a subscription the dollars show what the same use costs with an API key. The limits stay in percent, as Claude Code reports them.
+- The band shows no model names and no token counts. The Session tab lists them.
 - Two buttons sit at the right end: `[ details ]` and `×` (see Band buttons). A `Box` with `flexGrow: 1` between the text and the buttons pushes them there.
 - The mod passes the event on when a survey holds the band, when the band is off, and when `×` hid it in this session (see Band setting).
 - What other mods draw in the band stays below the line.
+
+### Actions
+
+`actionOf` in `advice.ts` gives the one action of the band, or none. The first that applies wins:
+
+| Order | Action | When |
+|---|---|---|
+| 1 | `week used up: usage credits until Sun 11:00` | The weekly limit is at 100% or more. Claude Code then bills usage credits and caches the main conversation for 5 minutes. The percent shows as `week 100%` in `heatText(1)`. |
+| 2 | `5h full at 15:31: pause or use Sonnet` | The 5-hour window reaches 100% before its reset at the pace so far, and that time is less than 60 minutes away (`fiveHourFullAt`). `5h 88%` comes first among the limits, in `heatText(percent / 100)`. |
+| 3 | `slow down or use Sonnet` | The week runs out before its reset at the pace so far (`weekRange`). |
+| 4 | `send now: after 14:32 the next message costs $2.40` | The cache life is 1 hour, its last 10 minutes run, and writing the context again costs $1 or more. 14:32 is the end of the cache life, the price is the re-warm price. |
+| 5 | `/clear if the topic changed` | The cache is cold, and writing the context again costs $1 or more. |
+| 6 | `/compact: each message reads 640k ≈ $0.16` | The context has 400k tokens or more. The price is the context at the cache read price of the model; a model without a price shows no price. |
+
+- The model hint names the next smaller family (`smallerFamily`): Fable, Mythos or Opus `or use Sonnet`, Sonnet `or use Haiku`. Haiku and other models get no hint: `5h full at 15:31: pause`, `slow down`.
+- The cache actions (4, 5) need a known cache life, a request, a price for the model and no running turn. A 5-minute cache never gets `send now`: the time is too short to act on. `/compact` needs no running turn. The limit actions (1 to 3) show also during a turn.
+- The thresholds are constants in `advice.ts`: `SEND_NOW_MS` (10 minutes), `BIG_REWARM_USD` (1 dollar), `COMPACT_TOKENS` (400,000) and `FIVE_HOUR_SOON_MS` (60 minutes). They are the decisions of 2026-10-09. The re-warm threshold adapts to the model: from about 125k tokens on Opus 5.5 and 50k on Fable 5.1.
 
 ### Band setting
 
@@ -241,7 +268,7 @@ The band is one line above the prompt. It has the same content in the CLI and in
 ### Band buttons
 
 ```text
-▕███████▊░░▏ HOT 47m left · 412k cached · $8.24 to re-warm | week 41% · 5h 12% | fable-5-1 r31M          [ details ]  ×
+▕███████▊░░▏ HOT 47m left · 120k cached · $2.40 to re-warm | week 41% · lasts until reset | 5h 12%          [ details ]  ×
 ```
 
 - The hide button `×` is a `Button` with the key `band-hide`, the label `×`, `role: 'dismiss'`, `plain` and dimmed. Both surfaces draw the label. The desktop app draws no close mark for the dismiss role in the band (checked on 2026-10-08: it drew a longer label as text and wrapped the band). A press runs `×` of Band setting. It has no hotkey, because a `plain` button with a hotkey draws `x: ×`; in the terminal, Tab moves the focus from `[ details ]` to it.
@@ -252,19 +279,14 @@ The band is one line above the prompt. It has the same content in the CLI and in
 - The band keeps 16 cells for the buttons: a gap of 2, the 11 cells of `[ details ]` (the longer label), a gap of 2 and the 1 cell of `×`. The text leaves out its parts in the drop order, and the buttons stay. On the desktop the native `details` button without a hotkey takes about 6.5 cells of the code font and `×` about 1 (measured on a screenshot of 2026-10-08), so the same 16 cells hold them.
 - A key chord from the prompt is not possible: the `action` prop of a button takes only an existing keybinding action of Claude Code, and the mod cannot define its own.
 
-### Projection in the band
+### Range of the week
 
-```text
-▕███████▊░░▏ HOT 47m left · 412k cached · $8.24 to re-warm | week 49% → 100% Sat 21:06 · 5h 62% → 100% Wed 15:31
-```
-
-- The weekly limit (`seven_day`) and the 5-hour limit (`five_hour`) each have a window that ends at their reset (`resetsAt`). The weekly window starts 7 days before the reset, the 5-hour window 5 hours before. The spend limit has no window and no projection.
-- The projection is linear: the percent used, divided by the time from the start of the window up to the reading (`limitsAt`), extended to 100%. `fullAt(percent, start, readAt)` in `format.ts` gives the time.
+- The weekly limit (`seven_day`) and the 5-hour limit (`five_hour`) each have a window that ends at their reset (`resetsAt`). The weekly window starts 7 days before the reset, the 5-hour window 5 hours before. The spend limit has no window.
+- The pace is linear: the percent used, divided by the time from the start of the window up to the reading (`limitsAt`), extended to 100%. `fullAt(percent, start, readAt)` in `format.ts` gives the time of 100%.
 - The pace ends at the time of the reading, not at now. A pace up to now would put the 100% time of an old reading too late, because the time since the reading would count as time without use.
-- The text is ` → 100% ` and the day and the time in local time (`dayTime`): ` → 100% Sat 21:06`, also for the 5-hour limit (` → 100% Wed 15:31`). It follows the percent of its limit, in the same `Text` as the limits. It is plain, as the limits are.
-- `limitProjection(limit, readAt, now)` returns an empty text, and the band shows no projection, in these cases: the limit has no window or no reset time, there is no reading time, the 100% time is at or after the reset, or the 100% time is not after now. The last case covers an old reading whose 100% time has passed, a limit at 100% or more, and a reset that has passed.
-- `limitItems(limits, readAt, now)` gives each limit its text (`week 49%`) and its projection, in the order week, 5h, spend. `bandData` keeps the list in `BandData.limits`.
-- Each projection is a part of the band of its own. The 5-hour projection leaves before the weekly projection, because the weekly limit is the more important one. The age of the limits leaves before both, so a narrow band can show a projection without the age. For this reason a projection whose time has passed is hidden.
+- `weekRange(limit, readAt, now)` in `advice.ts` gives `lasts` when the week reaches 100% at or after its reset (or has no pace, at 0%), and `runsOut` with the time when it reaches 100% before. It gives no range without a reset time or a reading, at 100% or more, and when the 100% time is not after now (an old reading).
+- The band shows `lasts until reset` dimmed, and `runs out Fri 14:00` with the day and the time in local time (`dayTime`), in the heat colour.
+- `fiveHourFullAt(limit, readAt, now)` gives the 100% time of the 5-hour window for the action `5h full`, when it is before the reset and within the next 60 minutes. The time shows as `clockTime`: `15:31`.
 
 The band must stay on one line. The desktop app wraps a line that is wider than its box, although the `Text` has `wrap: 'truncate-end'`, because its font is proportional. So the band fits itself to the available cells:
 
@@ -275,19 +297,9 @@ The band must stay on one line. The desktop app wraps a line that is wider than 
 - The table comes from the font file of the app (Text Regular, Bold for the capitals of the stage words) at 1.62 code-font cells per em. The 1.62 comes from a screenshot of the desktop app: the Week tab gives the width of a code-font cell (its columns sit at 26 and 63 cells), and the band text beside it gives the em. The table estimates that band text at 49.95 cells, and the screenshot draws it at 49.90. Two later screenshots draw the band text 2 to 3% wider than the table, so the band adds 4%.
 - The table belongs to one version of the desktop app. When the app changes its text font, its code font or their sizes, measure again: one screenshot with the band and the Week tab, the cell width from the columns of the Week tab, the em from the band text, and the advances from the font file of the app.
 - The budget is `available - 4`. The 4 free cells are a safety margin for the estimate.
-- When the band is wider than the budget, the band leaves out parts until it fits, in this order: the dimmed `+N models` suffix, the model, the context size, the age of the limits, the 5-hour projection, the weekly projection, the limits. The order is `BAND_DROP` in `view.ts`. The context size shows only without a tube, so with a tube the order is: suffix, model, age, 5-hour projection, weekly projection, limits.
-- With the label of the example above (`HOT 47m left · 412k cached · $8.24 to re-warm`, one other model, a recent reading), the band shows these parts at these widths of `bodyColumns`:
-
-| Parts | Desktop | Terminal |
-|---|---|---|
-| all | 128 or more | 154 or more |
-| without `+1 model` | 121 to 127 | 145 to 153 |
-| both projections, no model | 98 to 120 | 116 to 144 |
-| the weekly projection only | 84 to 97 | 99 to 115 |
-| the limits without a projection | 70 to 83 | 82 to 98 |
-| the tube and its label only | below 70 | below 82 |
-
-- The tube, the stage word and its label stay always. When they alone are wider than the budget, the terminal cuts the label at the end (`truncate-end`). The desktop app does not cut a `Text`, so there the label wraps to a second line. A band without a tube always keeps its last part, so that the line is never empty.
+- While an action shows, the range `lasts until reset`, the 5-hour value and the other limits besides the week, and the re-warm price leave at any width: the action is the one thing to read. A cold cache keeps its price, because it is the cost of the next message. The limit that the action names stays.
+- When the band is wider than the budget, the band leaves out parts until it fits, in this order: the age of the limits, `lasts until reset`, the 5-hour value and the other limits besides the week, the re-warm price, the `$/h` of the spend, the context, the week percent, the spend of today. The order is `BAND_DROP` in `view.ts`. `runs out Fri 14:00` and the limit that the action names never leave.
+- The tube, the stage word, the minutes of the label and the action stay always. When they alone are wider than the budget, the terminal cuts the label at the end (`truncate-end`). The desktop app does not cut a `Text`, so there the label wraps to a second line. A band without a tube always keeps its last part, so that the line is never empty.
 - Without a number for the available cells (`undefined`), the band leaves out nothing.
 
 ## Pane
@@ -510,6 +522,8 @@ The pieces of text of the resumes row and of the time axis sit at cell offsets, 
 
 ### Tab 3: Week
 
+The last row of the head grid is `at API prices` with the cost of the week since its reset, when it is above 0: on a subscription the value of the plan, with an API key the spend.
+
 The week starts at the `resetsAt` of the `seven_day` limit minus 7 days. Without a reading, the week starts 7 days before now, and the first row of the head grid shows `week n/a`.
 
 ```text
@@ -662,7 +676,7 @@ Rule: a term has the spelling of the label that the band or a tab draws.
 
 - The heading of a tab section is the number and the label of the tab bar (`1 Now`).
 - A term that names several labels joins them with a comma and a space (`req, input`).
-- A number in a term of the band is an example (`47m left`). It has the shape of the real text. A day name in a term is an example too (`→ 100% Sat 21:06`).
+- A number in a term of the band is an example (`47m left`). It has the shape of the real text. A day name in a term is an example too (`runs out Fri 14:00`).
 - When a label changes in the band or in a tab, change the term here and the copy in `tests/help-text.ts` in the same change. The test `the terms of the help tab are the labels that the band and the other tabs draw` checks the terms against the trees of the band and of the tabs.
 
 ## Recommendations
@@ -766,7 +780,6 @@ The prompt holds no transcript text, no file content and no prompt text. The mod
 - The cost is `costOf(usage, '5m')`: a cache write has the 5-minute price, as in a subagent, because the call does not use the cache of a conversation.
 - The causes and `main` do not change: the call is no thread of the conversation.
 - The snapshot carries the hours, so the Week and the Now tab count the call too. The Session tab shows the row `sonnet ≈` `recommend`, and the Week tab the row `sonnet recommend ≈`.
-- The band counts the price model among the models of the conversation, so a dimmed `+1 model` can show after a call.
 
 ### Model comparison
 
@@ -838,7 +851,7 @@ Each conversation writes one key, `run:<session id>:<start time>`. The band sett
 - A conversation writes its key only after its first request.
 - The session writes its key at most once every 15 seconds while it has new data, and once when the session ends.
 - 5 seconds after the session start, the mod deletes each `run:` key with an `updatedAt` older than 8 days.
-- The pane reads all `run:` keys when it opens, and every 15 seconds while it is shown on tab 1 or tab 3.
+- The pane reads all `run:` keys when it opens, and every 15 seconds while it is shown on tab 1 or tab 3. A session without plan limits (an API key) reads them every 15 seconds too, for the spend of the band.
 
 ## Prices
 
@@ -936,7 +949,7 @@ The pure functions do not call the mods API and do not read the clock. The time 
 - Drawings on the `terminal` and the `desktop` surface: the band line, the tube cells and colours, each pane tab, the tab change by key. On the desktop, the band and tab 1 hold one `Svg` with an `alt` that starts with `cache `, and no tube cells; on the terminal they hold no `Svg`.
 - History grid on both surfaces: the three rows with their labels and texts; the cell offsets of the marks and of the axis labels (terminal: exact strings; desktop: the `Box` widths before each piece); one resume, two resumes far apart, two resumes close together, a resume in the last cell, many resumes, no resume, and a resume older than 4 hours; the strip `Svg` has no triangle and is 14 high; the label column drops on a narrow pane.
 - Desktop width: `desktopCells` for single characters, every printable ASCII character between 0.2 and 2 cells, a character outside the tables as 2.2 cells, and the band text of the calibration screenshot at 49.9 to 50.5 cells; `bandCells` with and without a tube on both surfaces, with the 4% on the desktop.
-- Band width: for one, two and three models, on both surfaces and at the widths 60, 70, 80, 100, 110, 120, 130, 160 and without a number, the band is never wider than the budget (`available - 4`, and 16 cells less with the buttons), counted with `bandCells`, the parts leave in the order of the Band section, the suffix reads `+1 model` and `+2 models`, and the limits read `week 49% · 5h 8%`. A band whose tube, stage word and label are wider than the budget keeps them. The draw tests mount the band with a narrow and a wide `bodyColumns`.
+- Band: each action with its text, its order and its thresholds at their limits (`tests/advice.test.ts`); the band without an action, with each action, with an API key, with an unknown cache life, before the first request and with an old reading; the styles of the action, the range and the heat parts; the parts that an action hides; the drop order at narrow widths, with a range that runs out that stays. For eight states on both surfaces at the widths 60 to 160, the band is never wider than the budget (`available - 4`, and 16 cells less with the buttons), counted with `bandCells`, unless only the parts that never leave are left, and it shows no model name. The draw tests mount the band with a narrow and a wide `bodyColumns`, and with the 5-hour action before and after its time.
 - Band projection on both surfaces: both projections after their percents in one plain `Text`; no projection for a limit that does not reach 100% before its reset, without a reset time, and for the spend limit; at the widths 60 to 140 and at each width from 40 to 150, the model leaves, then the 5-hour projection, then the weekly projection, then the limits, and the band is never wider than the budget; an old reading keeps the times of its pace and shows its age, the age leaves before the projections, and a 5-hour time that has passed is hidden. The draw tests mount the band with both projections at 170, 135, 120 and 100 cells on the terminal, at 160, 115, 100 and 90 cells on the desktop, and after the 5-hour time has passed.
 - Reading time: a measure within a whole point moves `seenAt` of the last reading of its kind and never back, `weekOf` takes the reading with the last measure, `mergeReadings` drops a `seenAt` that is not a number, the snapshot carries `seenAt`, the Week tab paces up to `seenAt` and leaves out a time that has passed, and a `/clear` after two hours keeps the reading time, so the band shows `(2h ago)` and the pace up to that reading on both surfaces.
 - `fitColumns`: the table fits, one drop, several drops, no available width. A narrow tab 1 keeps the cache, the repo, `60 min` and `today`.

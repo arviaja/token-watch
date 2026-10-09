@@ -1,9 +1,10 @@
 import type { Breakdown, Cause, Causes, Counts, Limit, Main, MainRequest, Recommend, Resume, Snapshot, Totals } from '../types'
-import { cell, dayTime, desktopCells, fitColumns, formatMoney, formatPercent, formatTokens, historyCells, limitItems, limitsAgeText, markedCell, modelsText, placeMarks, projectionText, shortModel, tubeLabel, unknownLabel, UNKNOWN_LIFE, weekDayNames, type Column, type HistoryCell, type LimitItem, type PlacedMarks, type ResumeMark } from './format'
+import { actionOf, weekRange, type Action } from './advice'
+import { cell, dayTime, desktopCells, fitColumns, formatMoney, formatPercent, formatTokens, historyCells, limitsAgeText, markedCell, placeMarks, projectionText, shortModel, tubeParts, unknownLabel, UNKNOWN_LIFE, weekDayNames, type Column, type HistoryCell, type PlacedMarks, type ResumeMark } from './format'
 import { priceInfo, rewarmCost } from './prices'
 import { RECOMMEND_SCOPE, priceSourceOf } from './recommend'
 import { barSvg, defaultTtl, fraction, heat, heatText, minutesLeft, sparkSvg, stageOf, stripCellAt, stripCells, stripSvg, tubeAlt, tubeCells, type Cell, type Stage, type StripCell } from './temperature'
-import { STRIP_MS, groupWeek, mergeReadings, modelSums, weekOf, type NowRow, type Row, type Share } from './tally'
+import { STRIP_MS, groupWeek, mergeReadings, weekOf, type NowRow, type Row, type Share } from './tally'
 
 type El = (props: Record<string, any>) => unknown
 // Svg exists only in the element table of the remote surfaces. Markdown is in every table; the tests of the tabs leave it out
@@ -26,7 +27,6 @@ export const TAB_LABELS = ['Now', 'Session', 'Week', 'Why', 'Help']
 const UNPRICED = 'unpriced'
 // The note under the main table of the Session tab
 const COST_NOTE = 'estimate: the requests this mod saw, at API prices. /cost: the figure of Claude Code. It also counts requests that the mod does not see, for example compaction.'
-const MAX_BAND_MODELS = 1
 const BAND_TUBE_CELLS = 10
 // The desktop tube is an Svg of 90 by 14 CSS pixels: 11.6 cells of the code font of the desktop app
 const BAND_DESKTOP_TUBE_CELLS = 12
@@ -61,8 +61,26 @@ const WEEK_DROP = [1]
 const WEEK_HEAD_DROP = [2]
 const WHY_DROP = [1, 3]
 
-// limits is the limits with their projections, limitsAge the `(2h ago)` of an old reading, models the model with the highest cost, more the `+2 models` of the others
-export type BandData = { fraction: number | null; stage: Stage | null; label: string; limits: LimitItem[]; limitsAge: string; context: string; models: string; more: string }
+// A limit in the band: its name and percent, the heat of the percent when it runs hot (5h full soon, week used up) or null,
+// the range of the week (`lasts until reset` dimmed, `runs out Fri 14:00` in heat) or null, and isKept for a limit that the action names
+export type BandLimit = { kind: string; name: string; percent: string; heat: number | null; range: { text: string; heat: number | null } | null; isKept: boolean }
+
+// The band as a dashboard. lead never leaves: the minutes, `in turn`, or the label of an unknown cache life. context and price can leave.
+// action is the one action of the band, or null. spend replaces the limits with an API key: the cost of the sessions on this Mac today and in the last 60 minutes
+export type BandData = {
+  fraction: number | null
+  stage: Stage | null
+  lead: string
+  context: string
+  price: string
+  action: Action | null
+  limits: BandLimit[]
+  limitsAge: string
+  spend: { today: string; perHour: string } | null
+}
+
+// The cost of the sessions on this Mac since midnight and in the last 60 minutes, for a session without plan limits (an API key)
+export type Spend = { today: number; perHour: number }
 
 export type SessionData = {
   rows: Row[]
@@ -94,7 +112,38 @@ function share(part: number, whole: number): string {
   return whole > 0 ? formatPercent(Math.round((part / whole) * 100)) : ''
 }
 
-export function bandData(main: Main, totals: Totals, limits: Limit[], limitsAt: number | null, now: number): BandData | null {
+// The heat of a range that runs out: the colour of a part that runs hot
+const RUNS_OUT_HEAT = 0.9
+const LIMIT_NAMES: Record<string, string> = { seven_day: 'week', five_hour: '5h', spend_limit: 'spend' }
+const LIMIT_ORDER = ['seven_day', 'five_hour', 'spend_limit']
+
+function limitRank(kind: string): number {
+  const i = LIMIT_ORDER.indexOf(kind)
+  return i === -1 ? LIMIT_ORDER.length : i
+}
+
+// The limits of the band: the week with its range, then the 5-hour window and the others. The limit that the action names comes first and keeps its place
+function bandLimits(limits: readonly Limit[], limitsAt: number | null, now: number, action: Action | null): BandLimit[] {
+  const items = [...limits]
+    .sort((a, b) => limitRank(a.kind) - limitRank(b.kind))
+    .map((l): BandLimit => {
+      const isWeek = l.kind === 'seven_day'
+      const range = isWeek ? weekRange(l, limitsAt, now) : null
+      const isUsedUp = isWeek && action?.kind === 'weekUsedUp'
+      const isFull = l.kind === 'five_hour' && action?.kind === 'fiveHour'
+      return {
+        kind: l.kind,
+        name: LIMIT_NAMES[l.kind] ?? l.kind,
+        percent: formatPercent(l.percentUsed),
+        heat: isUsedUp ? 1 : isFull ? l.percentUsed / 100 : null,
+        range: range === null ? null : range.kind === 'lasts' ? { text: 'lasts until reset', heat: null } : { text: 'runs out ' + dayTime(range.at), heat: RUNS_OUT_HEAT },
+        isKept: isUsedUp || isFull,
+      }
+    })
+  return action?.kind === 'fiveHour' ? [...items.filter((l) => l.kind === 'five_hour'), ...items.filter((l) => l.kind !== 'five_hour')] : items
+}
+
+export function bandData(main: Main, limits: Limit[], limitsAt: number | null, now: number, spend: Spend | null = null): BandData | null {
   const ttl = main.ttl ?? null
   const f = fraction(main.lastRequestAt, now, main.isWorking, ttl)
   const stage = f === null ? null : stageOf(f, main.isWorking)
@@ -103,20 +152,15 @@ export function bandData(main: Main, totals: Totals, limits: Limit[], limitsAt: 
   const info = priceInfo(main.model)
   const rewarm = info === undefined ? null : rewarmCost(main.model, main.contextTokens, ttl ?? defaultTtl(false))
   // Without a known lifetime the tube shows no countdown, only the time since the last request
-  const label = stage !== null ? tubeLabel(stage, main.lastRequestAt, now, main.contextTokens, rewarm, info?.source === 'fallback', ttl) : main.lastRequestAt === null ? '' : unknownLabel(main.lastRequestAt, now)
-  const items = limitItems(limits, limitsAt, now)
-  const { models, more } = bandModels(totals)
-  if (f === null && label === '' && items.length === 0 && models === '') return null
-  // The tube label already names the context size
-  const context = stage === null && main.contextTokens > 0 ? formatTokens(main.contextTokens) : ''
-  return { fraction: f, stage, label, limits: items, limitsAge: items.length === 0 ? '' : limitsAgeText(limitsAt, now), context, models, more }
-}
-
-// The model with the highest cost, and the count of the others: `+1 model`, `+2 models`
-function bandModels(totals: Totals): { models: string; more: string } {
-  const sorted = [...modelSums(totals)].sort((a, b) => b.counts.cost - a.counts.cost)
-  const others = sorted.length - MAX_BAND_MODELS
-  return { models: modelsText(sorted.slice(0, MAX_BAND_MODELS)), more: others > 0 ? '+' + others + (others === 1 ? ' model' : ' models') : '' }
+  const parts =
+    stage !== null
+      ? tubeParts(stage, main.lastRequestAt, now, main.contextTokens, rewarm, info?.source === 'fallback', ttl)
+      : { lead: main.lastRequestAt === null ? '' : unknownLabel(main.lastRequestAt, now), context: main.lastRequestAt !== null && main.contextTokens > 0 ? ' · ' + formatTokens(main.contextTokens) + ' cached' : '', price: '' }
+  const action = actionOf({ main, limits, limitsAt, now })
+  const items = bandLimits(limits, limitsAt, now, action)
+  const spent = limits.length === 0 && spend !== null && (spend.today > 0 || parts.lead !== '') ? { today: 'today ' + formatMoney(spend.today), perHour: formatMoney(spend.perHour) + '/h' } : null
+  if (parts.lead === '' && items.length === 0 && spent === null) return null
+  return { fraction: f, stage, ...parts, action, limits: items, limitsAge: items.length === 0 ? '' : limitsAgeText(limitsAt, now), spend: spent }
 }
 
 export function weekData(snaps: Snapshot[], now: number): WeekData {
@@ -226,40 +270,47 @@ export function dayAxisEls(E: Els, names: string[], width: number, surface: stri
 }
 
 // The optional parts of the band, in the order that they leave when the band is too wide.
-// The projection of each limit is a part of its own. The 5-hour projection leaves before the weekly one, because the weekly limit matters more
-const BAND_DROP = ['more', 'models', 'context', 'age', 'fiveHourProjection', 'weekProjection', 'limits'] as const
+// calmRange is `lasts until reset`, minorLimits the limits besides the week. A range that runs out, the limit that the action names, the tube,
+// the stage word, the lead and the action never leave
+const BAND_DROP = ['age', 'calmRange', 'minorLimits', 'price', 'perHour', 'context', 'week', 'today'] as const
 type BandPart = (typeof BAND_DROP)[number]
 type Segment = { value: string; style?: Record<string, unknown> }
 
-const PROJECTION_PARTS: Record<string, BandPart | undefined> = { five_hour: 'fiveHourProjection', seven_day: 'weekProjection' }
-
-// The limits joined with ` · `, each with its projection when the projection is in `shown`
-function limitsValue(limits: LimitItem[], shown: Set<BandPart>): string {
-  return limits
-    .map((l) => {
-      const part = PROJECTION_PARTS[l.kind]
-      return part !== undefined && shown.has(part) ? l.text + l.projection : l.text
-    })
-    .join(' · ')
+// While an action shows, these parts leave at any width: the action is the one thing to read. A cold cache keeps its price, the cost of the next message
+function hiddenByAction(d: BandData): BandPart[] {
+  if (d.action === null) return []
+  return ['calmRange', 'minorLimits', ...(d.stage === 'COLD' ? [] : (['price'] as BandPart[]))]
 }
 
 const dim = (value: string): Segment => ({ value, style: { dimColor: true } })
+const heated = (value: string, heat: number | null): Segment => (heat === null ? { value } : { value, style: { color: heatText(heat) } })
 
-// The text of the band after the tube: the stage word (in the text colour of heat), its label and the parts in `shown`, with a separator between them
+// The parts of one limit that show: its name and percent, and its range
+function limitGroup(l: BandLimit, shown: Set<BandPart>): Segment[] {
+  const isWeek = l.kind === 'seven_day'
+  const isNameShown = l.isKept || (isWeek ? shown.has('week') : shown.has('minorLimits'))
+  const isRangeShown = l.range !== null && (l.range.heat !== null || shown.has('calmRange'))
+  const group: Segment[] = isNameShown ? [{ value: l.name + ' ' }, heated(l.percent, l.heat)] : []
+  if (isRangeShown) group.push(...(isNameShown ? [dim(' · ')] : []), l.range!.heat === null ? dim(l.range!.text) : heated(l.range!.text, l.range!.heat))
+  return group
+}
+
+// The text of the band after the tube: the stage word (in the text colour of heat) and its label, the action, the limits or the spend, with a separator between them
 function bandSegments(d: BandData, shown: Set<BandPart>): Segment[] {
   const segments: Segment[] = []
-  if (d.fraction !== null && d.stage !== null) segments.push({ value: ' ' }, { value: d.stage, style: { bold: true, color: heatText(d.fraction) } }, dim(' ' + d.label))
-  else if (d.label !== '') segments.push(dim(d.label))
-  const add = (prefix: string, ...group: Segment[]) => {
-    if (group[0].value === '') return
+  const label = d.lead + (shown.has('context') ? d.context : '') + (shown.has('context') && shown.has('price') ? d.price : '')
+  if (d.fraction !== null && d.stage !== null) segments.push({ value: ' ' }, { value: d.stage, style: { bold: true, color: heatText(d.fraction) } }, dim(' ' + label))
+  else if (d.lead !== '') segments.push(dim(label))
+  const add = (group: Segment[]) => {
+    if (group.length === 0) return
     if (segments.length > 0) segments.push(dim(' | '))
-    if (prefix !== '') segments.push(dim(prefix))
     segments.push(...group)
   }
-  const limits = limitsValue(d.limits, shown)
-  add('', { value: shown.has('limits') ? (shown.has('age') ? limits + ' ' + d.limitsAge : limits) : '' })
-  add('ctx ', { value: shown.has('context') ? d.context : '' })
-  add('', { value: shown.has('models') ? d.models : '' }, ...(shown.has('more') ? [dim(' ' + d.more)] : []))
+  if (d.action !== null) add([{ value: d.action.verb, style: { bold: true } }, ...(d.action.rest === '' ? [] : [{ value: d.action.rest }])])
+  const groups = d.limits.map((l) => limitGroup(l, shown)).filter((g) => g.length > 0)
+  if (groups.length > 0 && shown.has('age') && d.limitsAge !== '') groups[groups.length - 1].push(dim(' ' + d.limitsAge))
+  for (const group of groups) add(group)
+  if (d.spend !== null) add([...(shown.has('today') ? [{ value: d.spend.today }] : []), ...(shown.has('perHour') ? [dim((shown.has('today') ? ' · ' : '') + d.spend.perHour)] : [])])
   return segments
 }
 
@@ -294,20 +345,20 @@ export function bandEls(E: Els, d: BandData, surface: string = 'terminal', avail
   const onDesktop = isTubeShown && isOnDesktop
   const budget = typeof available === 'number' && Number.isFinite(available) ? available - BAND_MARGIN - (buttons === undefined ? 0 : BAND_BUTTON_CELLS) : Infinity
   const widthOf = (segments: Segment[]) => bandCells(segments.map((s) => s.value).join(''), isTubeShown, isOnDesktop)
-  const hasLimits = d.limits.length > 0
-  const hasProjection = (part: BandPart) => d.limits.some((l) => PROJECTION_PARTS[l.kind] === part && l.projection !== '')
   const present: Record<BandPart, boolean> = {
-    more: d.models !== '' && d.more !== '',
-    models: d.models !== '',
+    age: d.limits.length > 0 && d.limitsAge !== '',
+    calmRange: d.limits.some((l) => l.range !== null && l.range.heat === null),
+    minorLimits: d.limits.some((l) => l.kind !== 'seven_day' && !l.isKept),
+    price: d.price !== '',
+    perHour: d.spend !== null,
     context: d.context !== '',
-    age: hasLimits && d.limitsAge !== '',
-    fiveHourProjection: hasProjection('fiveHourProjection'),
-    weekProjection: hasProjection('weekProjection'),
-    limits: hasLimits,
+    week: d.limits.some((l) => l.kind === 'seven_day' && !l.isKept),
+    today: d.spend !== null,
   }
-  const shown = new Set<BandPart>(BAND_DROP.filter((part) => present[part]))
+  const hidden = hiddenByAction(d)
+  const shown = new Set<BandPart>(BAND_DROP.filter((part) => present[part] && !hidden.includes(part)))
   let segments = bandSegments(d, shown)
-  // Leave out parts in the drop order until the band fits. The tube, the stage word and the label stay, and so does the last text of a band without a tube
+  // Leave out parts in the drop order until the band fits. The tube, the stage word, the lead and the action stay, and so does the last text of a band without a tube
   for (const part of BAND_DROP) {
     if (widthOf(segments) <= budget) break
     if (!shown.has(part)) continue
@@ -522,6 +573,8 @@ function weekHead(E: Els, d: WeekData, available: number | undefined, surface: s
     rows.push(['week used, over time', sparkEls(E, d.history, meter.width, historyAlt(d.history), surface)])
     rows.push(['', dayAxisEls(E, weekDayNames(d.start), meter.width, surface)])
   }
+  // On a subscription the value of the plan, with an API key the spend: the cost of the week at API prices
+  if (d.total > 0) rows.push(['at API prices', formatMoney(d.total)])
   return tableEls(E, WEEK_COLUMNS, rows, { dimColumns: [0], dimRows: d.percent === null ? [0] : [], available, dropOrder: WEEK_HEAD_DROP })
 }
 
@@ -605,10 +658,18 @@ const HELP: HelpSection[] = [
       { term: UNKNOWN_LIFE, text: 'The mod has not read the cache life yet. The band shows the time since the last request, no countdown.' },
       { term: '412k cached', text: 'Tokens in the cache: the context.' },
       { term: '$8.24 to re-warm', text: 'What the next message costs to write them again.' },
-      { term: 'week 41% · 5h 12%', text: 'Plan limits used, as Claude Code reports them.' },
-      { term: '→ 100% Sat 21:06', text: 'When the limit reaches 100% at the pace so far, if this is before its reset.' },
-      { term: 'r31M w1.2M o120k', text: 'The costliest model: cache read, cache write, output.' },
-      { term: '+1 model', text: 'More models ran. The Session tab lists all of them.' },
+      { term: 'send now', text: 'The 1-hour cache expires within 10 minutes, and writing it again costs $1 or more.' },
+      { term: '/clear', text: 'The cache is cold, and writing it again costs $1 or more. A new topic is cheaper in a new conversation.' },
+      { term: '/compact', text: 'The context has 400k tokens or more, and every message reads all of it.' },
+      { term: 'slow down', text: 'At the pace so far the week runs out before its reset. A smaller model uses less of it.' },
+      { term: '5h full at 15:31', text: 'At the pace so far the 5-hour limit fills within the hour.' },
+      { term: 'week used up', text: 'Past the weekly limit Claude Code bills usage credits and caches for 5 minutes.' },
+      { term: 'week 41%', text: 'Weekly plan limit used, as Claude Code reports it.' },
+      { term: 'lasts until reset', text: 'At the pace so far the week lasts until its reset.' },
+      { term: 'runs out Fri 14:00', text: 'At the pace so far the week runs out at this time, before its reset.' },
+      { term: '5h 12%', text: '5-hour plan limit used.' },
+      { term: 'today $12.40', text: 'With an API key, in place of the limits: the cost of the sessions on this Mac since midnight.' },
+      { term: '$4.10/h', text: 'With an API key: the cost of the last 60 minutes.' },
       { term: '[ details ]', text: 'Opens this pane, and [ close ] closes it. In the terminal: ctrl+x tab, then Enter or t.' },
       { term: '×', text: 'Hides the band in this session. /token-watch band on shows it again. In the terminal: ctrl+x tab, Tab, Enter.' },
     ],
@@ -642,6 +703,7 @@ const HELP: HelpSection[] = [
       { term: 'week, resets', text: 'Weekly limit used, and when it resets.' },
       { term: 'at the current rate', text: 'When the week reaches 100% at the pace so far.' },
       { term: 'week used, over time', text: 'One cell per 12 hours: the highest weekly percent. Outlines are the periods still to come.' },
+      { term: 'at API prices', text: 'The cost of the week at API prices: on a subscription, what the same use costs with an API key.' },
       { term: 'by repo, by model', text: 'Cost since the weekly reset.' },
     ],
   },

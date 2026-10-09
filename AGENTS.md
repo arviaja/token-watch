@@ -22,7 +22,8 @@ Everything in this repo is public: files, commit messages, branch names, tags, i
 - `hooks/register.ts`: registers the hooks, the timers and the command. It holds the `$.state` values, writes the snapshots to the shared store, and makes the model call of `/token-watch recommend`. It is the only file that uses `$`. `register(on, options)` reads the `userConfig` option `recommendModel`.
 - `hooks/view.ts`: the element trees of the band, the five tabs and the dialog of `/token-watch recommend`. It is pure: the caller passes the element table.
 - `hooks/recommend.ts`: pure functions of `/token-watch recommend`: the system prompt, the prompt from the data of the tabs, the input estimate, the highest cost, the price model of an alias and the text of a failed call.
-- `hooks/tally.ts`: pure functions for counts, causes of cache writes, snapshots, and the rows of the Now and Week tabs.
+- `hooks/advice.ts`: the one action of the band (`actionOf`), the range of the week and the 5-hour action, the model hint and the thresholds of the actions.
+- `hooks/tally.ts`: pure functions for counts, causes of cache writes, snapshots, the spend of all sessions, and the rows of the Now and Week tabs.
 - `hooks/temperature.ts`: the cache life (5 minutes or 1 hour, `confirmLifetime`, `ttlFromResume`), stages, heat colours, and the cells and SVG markup of the tube, the bars, the strip and the week history.
 - `hooks/format.ts`: text formats (tokens, money, percent), table cells and column fitting.
 - `hooks/prices.ts`: the price table, the fallback price of a model without a key (the price of the newest model of its family), the cost functions by cache life, and `matchLifetime`: the cache life whose price gives the cost that Claude Code booked for a request.
@@ -32,7 +33,7 @@ Everything in this repo is public: files, commit messages, branch names, tags, i
 
 Tests are in `tests/` and run with `claude plugin test`:
 
-- `format`, `prices`, `recommend`, `tally`, `temperature` and `view` each have one test file for the module of the same name. `view.test.ts` uses a stub element table.
+- `advice`, `format`, `prices`, `recommend`, `tally`, `temperature` and `view` each have one test file for the module of the same name. `view.test.ts` uses a stub element table.
 - `hooks.test.ts` and `draw.test.ts` run `register.ts` in the test engine. `hooks.test.ts` covers state, store, timers and hook results. `draw.test.ts` mounts the band and the pane on the terminal and on the desktop.
 - `helpers.ts` stubs each mods API call, keeps the store in a Map, tracks the open panes by id (the option `paneShown: false` stands for a covered pane) and keeps each toast. It stubs `$.model.complete`, so no test makes a real model call. A test sets the result of the stub with the option `modelResult`.
 

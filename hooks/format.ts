@@ -220,13 +220,22 @@ export function limitProjection(limit: Limit, readAt: number | null, now: number
   return at !== null && at < resetAt && at > now ? ' → 100% ' + dayTime(at) : ''
 }
 
+// The label of the tube in three parts, so that the band can leave out the context and the price: the minutes (`47m left`, `15m`, `in turn`),
+// the context (` · 412k cached`, ` · next message re-writes 412k`) and the price (` · $3.30 to re-warm`, ` ≈ $3.30`).
 // rewarm is the cost to write the context again, or null for a model without a price. isEstimated marks a cost from a fallback price with `≈`.
 // ttl is the cache life of the last request. Only COLD and LIVE show without it: the other stages need a known life
-export function tubeLabel(stage: Stage, lastAt: number | null, now: number, contextTokens: number, rewarm: number | null, isEstimated: boolean, ttl: Ttl | null): string {
+export type TubeParts = { lead: string; context: string; price: string }
+
+export function tubeParts(stage: Stage, lastAt: number | null, now: number, contextTokens: number, rewarm: number | null, isEstimated: boolean, ttl: Ttl | null): TubeParts {
   const cached = formatTokens(contextTokens)
-  if (stage === 'LIVE' || lastAt === null) return contextTokens > 0 ? 'in turn · ' + cached + ' cached' : 'in turn'
-  if (stage === 'COLD' || ttl === null) return minutesCold(lastAt, now, ttl) + 'm · next message re-writes ' + cached + (rewarm === null ? '' : ' ≈ ' + formatMoney(rewarm))
-  return minutesLeft(lastAt, now, ttl) + 'm left · ' + cached + ' cached' + (rewarm === null ? '' : ' · ' + (isEstimated ? '≈ ' : '') + formatMoney(rewarm) + ' to re-warm')
+  if (stage === 'LIVE' || lastAt === null) return { lead: 'in turn', context: contextTokens > 0 ? ' · ' + cached + ' cached' : '', price: '' }
+  if (stage === 'COLD' || ttl === null) return { lead: minutesCold(lastAt, now, ttl) + 'm', context: ' · next message re-writes ' + cached, price: rewarm === null ? '' : ' ≈ ' + formatMoney(rewarm) }
+  return { lead: minutesLeft(lastAt, now, ttl) + 'm left', context: ' · ' + cached + ' cached', price: rewarm === null ? '' : ' · ' + (isEstimated ? '≈ ' : '') + formatMoney(rewarm) + ' to re-warm' }
+}
+
+export function tubeLabel(stage: Stage, lastAt: number | null, now: number, contextTokens: number, rewarm: number | null, isEstimated: boolean, ttl: Ttl | null): string {
+  const p = tubeParts(stage, lastAt, now, contextTokens, rewarm, isEstimated, ttl)
+  return p.lead + p.context + p.price
 }
 
 export const UNKNOWN_LIFE = 'cache life unknown'
@@ -236,24 +245,14 @@ export function unknownLabel(lastAt: number, now: number): string {
   return UNKNOWN_LIFE + ' · last request ' + Math.max(0, Math.floor((now - lastAt) / 60_000)) + 'm ago'
 }
 
-export function modelsText(rows: { model: string; counts: Counts }[]): string {
-  return rows
-    .map(
-      (row) =>
-        shortModel(row.model) +
-        ' r' +
-        formatTokens(row.counts.cacheRead) +
-        ' w' +
-        formatTokens(row.counts.cacheWrite) +
-        ' o' +
-        formatTokens(row.counts.output),
-    )
-    .join(' | ')
+export function dayTime(ms: number): string {
+  return DAYS[new Date(ms).getDay()] + ' ' + clockTime(ms)
 }
 
-export function dayTime(ms: number): string {
+// The local time of day: `14:32`
+export function clockTime(ms: number): string {
   const d = new Date(ms)
-  return DAYS[d.getDay()] + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
 }
 
 // The projection of the Week tab. readAt is the time of the weekly reading, or null without a reading.
