@@ -19,7 +19,8 @@ export const RECOMMEND_TIMEOUT_MS = 120_000
 export const RECOMMEND_EFFORT = 'medium'
 // The most rows of each Week table in the prompt
 const WEEK_ROWS = 10
-// A Markdown or a Text holds at most 10000 characters, and tab and newline are its only control characters
+// Claude Code 2.1.289 refuses a Markdown text of more than 10000 characters, and the mod keeps a Text to the same length. In 2.1.293 a Markdown
+// has any length, and one drawing holds 100000 characters in all. The mod supports 2.1.287 and later, so the cut stays at 10000. Tab and newline are the only control characters
 const MAX_TEXT = 10_000
 const CUT_NOTE = '\n\n… (cut at 10,000 characters)'
 
@@ -82,7 +83,7 @@ export function failureText(r: CallFailure): string {
 }
 
 // A text that the dialog can draw: carriage returns and other control characters out, and at most 10000 characters.
-// A longer reply is cut, with a note, because the engine refuses a tree with a longer text and closes the pane
+// A longer reply is cut, with a note, because Claude Code 2.1.289 refuses a tree with a longer text and closes the pane
 export function drawableText(text: string): string {
   // The C0 characters besides tab and newline, DEL and the C1 characters: the engine refuses each of them
   const clean = text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '')

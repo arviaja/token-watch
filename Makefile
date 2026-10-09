@@ -38,7 +38,7 @@ validate:
 test:
 	claude plugin test .
 
-# Type check with the TypeScript compiler. It is not in `verify` until the known errors (200 today) are fixed.
+# Type check with the TypeScript compiler. It is not in `verify` until the known errors are fixed.
 # It needs tsconfig.json and .claude-plugin/types/. Claude Code generates both when the mod loads, and git ignores both.
 # In a fresh checkout or a new worktree they can be missing, and then this target fails for that reason.
 typecheck:

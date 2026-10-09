@@ -268,9 +268,9 @@ test('breakdownOf keeps used categories, loaded MCP tools by server and the 10 l
     ],
     memoryFiles: Array.from({ length: 12 }, (_, i) => ({ path: 'f' + i, tokens: i })),
     mcpTools: [
-      { name: 'a', serverName: 'linear', tokens: 5, isLoaded: true },
-      { name: 'b', serverName: 'linear', tokens: 6, isLoaded: true },
-      { name: 'c', serverName: 'notion', tokens: 100, isLoaded: false },
+      { serverName: 'linear', tokens: 5, isLoaded: true },
+      { serverName: 'linear', tokens: 6, isLoaded: true },
+      { serverName: 'notion', tokens: 100, isLoaded: false },
     ],
     agents: [{ agentType: 'second-opinion', tokens: 300 }],
   })
