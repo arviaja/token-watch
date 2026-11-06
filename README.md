@@ -101,7 +101,7 @@ Each hook passes its event on unchanged, with three exceptions that concern only
 
 ## Limits
 
-- The mod sees only sessions that run it. Codex and sessions from before the installation are not counted. There is no backfill from transcripts.
+- The mod sees only sessions that run it. Sessions from before the installation are not counted. There is no backfill from transcripts.
 - Requests that do not pass through `turn.step`, for example compaction summaries, are not counted. The totals can be lower than `/cost`.
 - The split by repo, model and scope is an estimate from tokens weighted with API prices. The price table is in `hooks/prices.ts` (source: the Claude pricing page, read 2026-10-09). A price change needs an edit of that file. Haiku 5.5 has a higher price for a prompt above 100,000 tokens; the table holds both prices.
 - A model without a key in the table uses the price of the newest model of the same family (the word after `claude-`, for example `opus`). `claude-opus-5-6` uses the price of `claude-opus-5-5` while the table has no key for it. The cost then shows with a `≈` after the model name in the Session table and in the Week table by model and scope, and in the re-warm cost of the band. The Now tab and the totals mix models, so they have no `≈`. A model of a family without any key shows `unpriced`, and its cost is 0.
